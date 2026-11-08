@@ -1,0 +1,3 @@
+nohup: ignoring input
+[p1000] U=100 P=1000 F=20 -> 100 users + 100000 posts = 100100 entités
+[p1000] 100100 entités écrites en 28.8s (3475/s)

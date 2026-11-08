@@ -1,0 +1,2 @@
+- 08/11 : p1000 en --rest : 100100 entités en 28.8 s (3475/s), 0 erreur. Même jeu en gRPC : DeadlineExceeded en boucle (>50 min). Un seul facteur changé => cause = transport gRPC depuis Cloud Shell, pas la capacité d'écriture de Datastore.
+- 08/11 16h30 : u100 regénéré (2000 posts). 27/27 jeux exacts (bench/check_datasets.py). Mise en place terminée.
