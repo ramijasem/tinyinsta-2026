@@ -43,3 +43,8 @@
 
 ## Coût (à compléter avec la page Facturation)
 - Écritures du seed final : ~400 000 entités, plus les écritures et suppressions des tentatives ratées (environ 300 000 entités supplémentaires)
+
+## Chemin de code de get_timeline (vérifié le 10/11)
+- hasattr(datastore.Client, 'gql') == False -> le chemin GQL (main.py L52-56) n'est JAMAIS exécuté ; le README est trompeur.
+- Test direct de la requête de L61-64 sur f30 : 30 valeurs dans IN -> OK (20 posts) ; 31 valeurs -> InvalidArgument 400 "IN supports up to 30 values".
+- Donc F <= 29 (F+1 <= 30 auteurs) : chemin IN (L61-64). F >= 30 : exception avalée (L65) -> boucle de F+1 requêtes séquentielles (L66-72), jusqu'à (F+1)*20 lectures, tri en Python. Réponse HTTP 200 dans les deux cas.
