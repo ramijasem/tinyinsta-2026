@@ -1,0 +1,8 @@
+facteur,valeur,parametres_fixes,fichiers_raw,n_requetes,n_instances,serveur_median_ms,serveur_q1_ms,serveur_q3_ms
+U,100,P=20;F=20,u100,1160,1,31.4,28.0,37.5
+U,1000,P=20;F=20,base_debut+base_fin,2355,1,31.6,27.9,37.0
+U,10000,P=20;F=20,u10000,1104,1,34.3,30.5,41.3
+P,10,U=100;F=20,p10,1240,1,30.9,27.8,35.0
+P,20,U=100;F=20,u100,1160,1,31.4,28.0,37.5
+P,100,U=100;F=20,p100,1076,1,34.1,30.0,40.9
+P,1000,U=100;F=20,p1000,1127,1,34.0,30.2,40.3
