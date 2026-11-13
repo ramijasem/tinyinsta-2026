@@ -1,171 +1,89 @@
-# Tiny Instagram (minimal) on Google App Engine
+# TinyInsta passe-t-elle à l'échelle ? — Benchmark 2026
 
-This repository contains a tiny Instagram-like demo implemented with Flask and Google Cloud Datastore (Firestore in Datastore mode). It is a small, educational project that demonstrates posting, following, and reading a simple timeline.
+Rapport du projet Données massives et Cloud. Sujet : [SUJET.md](SUJET.md). README d'origine du dépôt : [README_original.md](README_original.md).
 
-**Project subject (2026): https://tinyinsta-2026-37bcc6.univ-nantes.io/ (source: [SUJET.md](SUJET.md)).**
+## 1. Montage
+- Projet GCP : `tinyinsta-2026-511514`, région App Engine : `europe-west`
+- Application : https://tinyinsta-2026-511514.ew.r.appspot.com (version par défaut `20261106t175435`, F1, autoscaling ≤ 10)
+- Base : Firestore en mode Datastore, `concurrencyMode = PESSIMISTIC`, index `Post(author ASC, created DESC)`
+- Jeux de données : générés du 06/11 au 08/11/2026 avec `bench/seed_exact.py`, vérifiés par `bench/check_datasets.py` (27/27 exacts)
+- Client (seed et charge) : Cloud Shell — Python 3.12, locust 2.46.7, google-cloud-datastore 2.19.0
+- Versions de mesure : *(à compléter : fixed1, fixed2, fixed4, dates)*
 
-This README describes how to run, seed and test the app, plus notes about GQL queries and common deployment troubleshooting.
+## 2. Résultats
 
-## Prerequisites
-- Create a GCP Project:`https://console.cloud.google.com/`
-  - See the prof.
+### Partie 1 — Coût d'une requête
 
-- Open a cloud shell 
-  - see the prof.
+#### Hypothèse
 
-* Initialize or select your GCP project and create the App Engine application (if not already created):
+Avant de mesurer, je regarde ce que fait vraiment une timeline dans `get_timeline` (`main.py`, L38-73).
 
-```sh
-gcloud init
-gcloud app create
-```
+**Ce que fait le code.** Trois étapes :
+1. un lookup par clé de l'utilisateur (L43) pour récupérer sa liste `follows` ;
+2. l'ajout de l'utilisateur lui-même à cette liste (L47), soit F + 1 auteurs ;
+3. une requête `author IN (...) ORDER BY created DESC LIMIT 20` (L61-64), servie par l'index composite `Post(author, created DESC)`.
 
-- clone the course repository : 
-```
-git clone https://gitlab.univ-nantes.fr/molli-p/tinyinsta-2026.git
-cd tinyinsta-2026
-```
+Le code prévoit aussi une version GQL (L52-56), mais elle ne tourne jamais : `datastore.Client` n'a pas de méthode `gql` (vérifié). Et il y a un piège : si la requête `IN` échoue, l'erreur est ignorée (L65) et le code fait une boucle d'une requête par auteur (L66-72). Or Datastore accepte au plus 30 valeurs dans un `IN`. J'ai testé : 30 passe, 31 renvoie `400 IN supports up to 30 values`. Dès F = 30, l'application change donc de chemin sans rien dire, et répond toujours 200.
 
-* Install dependencies
-```sh
-pip install -r requirements.txt
-```
+**U et P : je m'attends à un temps constant.**
+Datastore range ses données par plages de clés triées (*range partitioning*). Dans l'index, les posts d'un même auteur sont côte à côte, du plus récent au plus ancien. Pour avoir ses 20 derniers posts, il suffit d'aller au début de sa plage et de lire 20 entrées : c'est la *range query* avec `ORDER BY … LIMIT` que le cours décrit comme naturelle en range partitioning. Le lookup de L43 est un accès par clé exacte (*point lookup*). Ni le nombre total d'utilisateurs (U), ni les posts plus anciens (P) n'entrent en jeu. C'est toute la différence avec le *Seq Scan* + *Sort* de PostgreSQL vu en cours : ici, on fait toujours l'équivalent d'un *Index Scan*.
 
-* Deploy the app:
+**F : je m'attends à ce que ça ne passe pas à l'échelle.**
+Chaque auteur suivi est une plage différente, potentiellement sur un *shard* différent. La requête devient un *scatter/gather* sur F + 1 plages, suivi d'une fusion des résultats.
+- F ≤ 25 : une seule requête `IN`, légère hausse avec F ;
+- F = 30 : un saut, le code bascule sur la boucle ;
+- F ≥ 30 : F + 1 allers-retours successifs vers Datastore. Le temps devrait croître à peu près linéairement avec F.
 
-```sh
-gcloud app deploy
-```
+Petit calcul de ce que coûte une timeline :
 
-* [OPTIONAL] Index does not matter:
+| Cas | Lookups | Requêtes Datastore | Posts renvoyés (max) |
+|---|---|---|---|
+| U ou P quelconque (F = 20) | 1 | 1 | 20 |
+| F = 25 | 1 | 1 | 20 |
+| F = 30 | 1 | 31 | 620 |
+| F = 100 | 1 | 101 | 2 020 |
 
-```sh
-gcloud app deploy index.yaml
-# or
-gcloud datastore indexes create index.yaml
-```
+**Latence client.** `Server-Timing` ne chronomètre que `get_timeline` (L139-141). Tout le reste s'ajoute côté client : JSON, Flask, load balancer de Google, réseau jusqu'à Cloud Shell. Comme ça ne dépend ni de U, ni de P, ni de F, l'écart entre latence client et temps serveur devrait rester à peu près constant.
 
-* open the URL address of the you application, create account, post, follow. Does it Works?? If something is wrong where to find the error ?? 
-  * See the prof
+**En résumé :** ça devrait passer à l'échelle en U et en P grâce à l'index, mais pas en F, à cause du `IN` limité à 30 et de la boucle de secours. Comme le dit le cours : *« it scales if the data access scales »*.
 
+#### Protocole
+*(à compléter)*
 
-* How many servers are working for this app?? How much are you paying for running this app ? What is the cloud model for this app (Iaas, Paas, Saas). What is the Platform in PaaS ??
+#### Figures
+*(fig1a, fig1b)*
 
-* See the impact in the datastore: do you see your data ?
-  * See the prof
+#### Interprétation
+*(à compléter)*
 
-* How much are you paying for hosting these data in this store ?? 
-* What is the consistency of this store ?
-* What is the sharding strategy of this store ? How to be sure of that ? 
-* What queries can you write with store (expressivity)
+### Partie 2 — Capacité
+#### Hypothèse
+#### Protocole
+#### Figures
+#### Interprétation
 
-## HTTP Endpoints
+### Partie 3 — Corriger et re-mesurer
+#### Hypothèse
+#### Protocole
+#### Figures
+#### Interprétation
 
-- `/` — HTML UI for simple interactions
-- `POST /login` — login with a username (no password)
-- `POST /post` — create a new post (form)
-- `POST /follow` — follow another user (form)
-- `GET /api/timeline?user=<username>&limit=<n>` — JSON timeline for a user (default limit 20). Response headers: `X-Instance` (App Engine instance that served the request) and `Server-Timing: timeline;dur=<ms>` (time spent in `get_timeline` on the server)
-- `POST /admin/seed` — server-side seed (requires `SEED_TOKEN` via header `X-Seed-Token` or `token` param)
+## 3. Tableau des verdicts
 
-Example server-side seed call:
+| Dimension | Passe à l'échelle ? | Jusqu'où ? | Pourquoi (mécanisme) | Preuve |
+|---|---|---|---|---|
+| Utilisateurs (U) | | | | Fig. 1a |
+| Posts par utilisateur (P) | | | | Fig. 1a |
+| Followees (F) | | | | Fig. 1b |
+| Instances (N) | | | | Fig. 2a |
 
-```sh
-curl -X POST \
-  -H "X-Seed-Token: change-me-seed-token" \
-  "https://<YOUR_APP>.appspot.com/admin/seed?users=8&posts=100&follows_min=1&follows_max=4&prefix=load"
-```
+## 4. Validité
+1. Instances ayant réellement servi chaque mesure :
+2. Indépendance des runs et ordre des mesures :
+3. Part de la latence due au réseau :
+4. Échecs comptés et codes HTTP observés :
+5. Vérification du chemin de code : chemin GQL jamais exécuté ; `IN` limité à 30 valeurs (voir NOTES.md)
+6. Coût de la campagne :
 
-## Benchmark toolkit (project)
-
-Step-by-step instructions for Cloud Shell (in French): [bench/README.md](bench/README.md).
-
-The project uses the tools below (`bench/` is not uploaded to App Engine). Install them in Cloud Shell:
-
-```sh
-pip install -r bench/requirements.txt
-```
-
-**Data generator** — exact parameters: `U` users, each with exactly `P` posts and following exactly `F` other users of the same dataset. Each dataset has its own prefix; re-running a prefix *adds* posts, so purge first.
-
-```sh
-python bench/seed_exact.py --prefix base --users 1000 --posts-per-user 20 --followees 20
-python bench/seed_exact.py --prefix base --purge                  # delete the whole dataset
-python bench/seed_exact.py --prefix base --users 1000 --posts-per-user 20 --followees 20 --dry-run
-```
-
-User names are `<prefix>_u00000 … <prefix>_u<U-1>`.
-
-**Deployment variants**
-
-| Configuration | Command | Version URL |
-|---|---|---|
-| Autoscaling, at most 10 instances (`app.yaml`) | `gcloud app deploy --version auto-r1 --no-promote` | `https://auto-r1-dot-<PROJECT>.<REGION>.r.appspot.com` |
-| Exactly N instances, no autoscaling | `./deploy_fixed.sh N` | `https://fixedN-dot-<PROJECT>.<REGION>.r.appspot.com` |
-
-Fixed-instance versions are billed as long as they run: `gcloud app versions stop fixedN` when you are done.
-
-**Load generator** — [Locust](https://locust.io), closed loop, one distinct TinyInsta user per Locust user, one CSV line per request (`T_START, LATENCY_MS, STATUS, INSTANCE, SERVER_MS, ERROR, USERS`):
-
-```sh
-# constant load: 16 concurrent users for 75 s
-TINY_PREFIX=base TINY_USERS=1000 TINY_LOG=raw/run.csv \
-  locust -f bench/locustfile.py --headless -u 16 -r 16 -t 75s --only-summary --host <VERSION_URL>
-
-```
-
-## GQL & Datastore notes
-
-The timeline query used by the app is roughly:
-
-```sql
-SELECT * FROM Post WHERE author IN @authors ORDER BY created DESC
-```
-
-Consistency and transactions: the app runs on Firestore in Datastore mode.
-
-- Lookups and queries, including non-ancestor queries, are strongly consistent by default.
-- Transactions are ACID and may span any entities, even entities stored on different partitions (distributed transactions, serializable isolation).
-- The database's concurrency mode decides how conflicting transactions are handled: `PESSIMISTIC` (locks) or `OPTIMISTIC` (validation at commit; a conflicting transaction fails and must be retried).
-- Databases automatically upgraded from legacy Cloud Datastore may still run in `OPTIMISTIC_WITH_ENTITY_GROUPS`, which keeps the legacy limits: at most 25 entity groups per transaction and 1 write per second per entity group. Check the mode of your database in the console, or with `gcloud firestore databases describe --database='(default)'` (field `concurrencyMode`, requires the Firestore API).
-
-## Troubleshooting: Cloud Build / staging bucket error
-
-If you encounter an error like:
-
-```
-Failed to create cloud build: ... invalid bucket "staging.<PROJECT>.appspot.com"; service account ... does not have access
-```
-
-Check the following:
-
-1. Required services are enabled:
-
-```sh
-gcloud services enable appengine.googleapis.com cloudbuild.googleapis.com iam.googleapis.com storage.googleapis.com
-```
-
-2. Ensure the App Engine service account has sufficient permissions on the staging bucket. For example, grant storage admin at project level (adjust to least privilege required):
-
-```sh
-PROJECT_ID="<YOUR_PROJECT>"
-gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-  --member="serviceAccount:${PROJECT_ID}@appspot.gserviceaccount.com" \
-  --role="roles/storage.admin"
-```
-
-3. If the staging bucket is missing, create it and grant the service account object admin on the bucket:
-
-```sh
-gsutil mb -p "$PROJECT_ID" -l europe-west1 "gs://staging.${PROJECT_ID}.appspot.com"
-gsutil iam ch serviceAccount:${PROJECT_ID}@appspot.gserviceaccount.com:objectAdmin "gs://staging.${PROJECT_ID}.appspot.com"
-```
-
-Index deployment (if GCP prompts for missing indexes):
-
-```sh
-gcloud datastore indexes create index.yaml || gcloud app deploy index.yaml
-```
-
-## License
-MIT
+## 5. Coût de la campagne
+*(à compléter avec la page Facturation)*
