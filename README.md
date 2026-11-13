@@ -93,6 +93,24 @@ Le coût ne dépend ni de U ni de P, mais il est multiplié par 30 dès F = 30, 
 
 ### Partie 2 — Capacité
 #### Hypothèse
+
+Avant de mesurer, je regarde comment l'application est lancée, puisque c'est l'indice du sujet.
+
+**Ce que fait une instance.** `app.yaml` (L2) et `deploy_fixed.sh` lancent `gunicorn -b :$PORT main:app`, sans aucune option. Par défaut, gunicorn démarre **un seul worker synchrone** : une instance traite **une seule requête à la fois**. Pendant qu'une timeline attend Datastore, le worker est bloqué, même si le CPU ne fait rien. Les autres requêtes attendent dans une file.
+
+**Capacité d'une instance.** En Partie 1, une timeline de `base` occupe le serveur environ 31 ms, auxquels s'ajoutent Flask et le JSON. J'estime donc la capacité à 1 / 0,033 s, soit **environ 30 timelines par seconde par instance**. Avec `-u 1`, j'obtenais 19,7 requêtes/s (1 180 en 60 s), parce que le client attend aussi les ~14 ms de réseau entre deux requêtes.
+
+**Débit selon C (Fig. 2a).** En boucle fermée, chaque utilisateur Locust renvoie une requête dès qu'il a la réponse. Tant que les instances ne sont pas pleines, le débit monte avec C (X ≈ C / 45 ms), puis il plafonne à N × 30 req/s :
+- N = 1 : saturation dès C ≈ 2, plafond ≈ 30 req/s ;
+- N = 2 : saturation vers C ≈ 4, plafond ≈ 60 req/s ;
+- N = 4 : saturation vers C ≈ 8, plafond ≈ 120 req/s.
+
+**Latence selon C (Fig. 2b) et loi de Little.** Avec C utilisateurs en boucle fermée, la loi de Little donne R ≈ C / X. Avant la saturation, la latence reste autour de 45 ms. Après, le débit ne bouge plus et chaque utilisateur de plus ajoute de l'attente dans la file : la latence doit croître linéairement avec C (≈ 2 s pour C = 64 et N = 1). La loi devrait rester vraie au-delà de la saturation, à deux réserves près : elle porte sur la latence **moyenne** alors que je trace la médiane, et elle ne tient plus si des requêtes sont rejetées (5xx, timeouts).
+
+**De 1 à 4 instances (scale-out).** Les timelines sont indépendantes : pas d'écriture, pas de verrou, pas d'état partagé, à part Datastore qui joue le rôle de mémoire commune entre les instances. Au sens de la loi d'Amdahl, la part séquentielle est quasi nulle : j'attends un débit maximal **multiplié par environ 4**. Ce qui pourrait l'empêcher : une répartition inégale du load balancer entre les instances, ou le client Locust lui-même (le sujet suppose qu'il n'est pas un goulot). Datastore ne devrait pas saturer : 120 timelines/s font environ 2 500 lectures/s, réparties sur 1 000 utilisateurs différents, donc sans *hotspot*.
+
+**En résumé :** la capacité d'une instance est limitée par son unique worker, pas par Datastore ni par le CPU. Ajouter des instances devrait multiplier le débit à peu près par N. On mesure ici la **scalabilité** sans l'**élasticité** (pas d'autoscaling), et le cours le rappelle : les deux ne sont pas la même chose.
+
 #### Protocole
 #### Figures
 #### Interprétation
