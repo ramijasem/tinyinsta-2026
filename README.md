@@ -112,8 +112,35 @@ Avant de mesurer, je regarde comment l'application est lancée, puisque c'est l'
 **En résumé :** la capacité d'une instance est limitée par son unique worker, pas par Datastore ni par le CPU. Ajouter des instances devrait multiplier le débit à peu près par N. On mesure ici la **scalabilité** sans l'**élasticité** (pas d'autoscaling), et le cours le rappelle : les deux ne sont pas la même chose.
 
 #### Protocole
+- Versions `fixed1`, `fixed2` et `fixed4` (instances B1 en manual scaling), mesurées l'une après l'autre avec `bench/run_part2.sh N`. Pour chaque N, le script supprime l'ancienne version, la redéploie, attend qu'elle réponde, fait une chauffe de 30 s à C = 16 (pour vérifier que les N instances servent), mesure C ∈ {1, 2, 4, 8, 16, 32, 64} dans un ordre mélangé (graine fixe, `order.txt`), refait le premier C (8) à la fin pour détecter une dérive, puis arrête la version.
+- Jeu `base`, Locust en boucle fermée, 60 s par point.
+- Débit : réponses 200 dont la requête part entre 5 et 55 s du run, divisées par 50 s. Latences médiane et moyenne sur la même fenêtre. Nombre d'instances et part de la plus chargée lus dans `X-Instance`.
+- Mesures du 13/11/2026, de 15:50 à 16:18 UTC, depuis Cloud Shell. Figures : `python bench/make_figures.py`.
+- Incidents avant ces mesures (détails dans `NOTES.md`) : un déploiement raté parce que le log s'écrivait dans le dossier envoyé (corrigé avec `.gcloudignore`), puis un redéploiement bloqué par-dessus une version arrêtée (corrigé en supprimant la version avant de la redéployer).
+
 #### Figures
+![Fig. 2a](figures/fig2a.png)
+
+![Fig. 2b](figures/fig2b.png)
+
+Valeurs tracées : [`figures/fig2a.csv`](figures/fig2a.csv), [`figures/fig2b.csv`](figures/fig2b.csv).
+
 #### Interprétation
+
+**Les mesures.** Chaque point a été servi par exactement N instances (1, 2 ou 4). Les échecs sont tous côté client (erreurs DNS de Cloud Shell et connexions refusées), toujours sous 1 %, sans aucune erreur 5xx de l'application. Le point C = 8 refait en fin de série donne une latence client 7 à 14 % plus élevée, pour un temps serveur identique : je considère donc qu'un écart de moins de 15 % entre deux points n'est pas significatif.
+
+**Saturation et capacité d'une instance.** Avec N = 1, le débit plafonne à environ **28 timelines/s dès C = 2**. Au-delà, chaque doublement de C double la latence (70 → 145 → 260 → 548 → 1 175 → 2 267 ms) : c'est une file d'attente devant un seul guichet. Une requête occupe l'instance environ 36 ms (1/28 s), dont ~27 ms dans `get_timeline` (l'instance y passe 76 à 83 % de son temps) et ~7 ms dans Flask, le JSON et gunicorn. Ce qui limite l'instance, ce n'est ni le CPU ni Datastore, mais la façon dont l'application est lancée : `gunicorn` sans option, donc **un seul worker synchrone**, qui attend Datastore sans pouvoir traiter une autre requête.
+
+**Loi de Little.** Avec la latence **moyenne**, elle est vérifiée à 2 % près dans presque tous les cas, y compris bien au-delà de la saturation (N = 1, C = 64 : 2 276 ms mesurés, contre 64 / 28,0 = 2 287 ms prédits). Les écarts de 5 à 13 % à C = 16 et C = 32 tombent sur les runs qui ont eu des échecs DNS : un utilisateur Locust bloqué 10 à 20 s sur une erreur ne compte ni dans le débit ni dans la latence, donc il y a en réalité moins de C utilisateurs actifs. La **médiane** peut s'écarter beaucoup plus (N = 2, C = 64 : médiane 791 ms, moyenne 1 511 ms), parce que la loi porte sur la moyenne.
+
+**De 1 à 4 instances : le scale-out n'est pas linéaire.** Le débit maximal passe de ~28 à ~44 req/s avec 2 instances (×1,6), et à ~81 req/s avec 4 (×2,9), au lieu de ×2 et ×4. J'ai vérifié trois explications :
+- le **load balancer** répartit bien : l'instance la plus chargée sert 50 à 56 % des requêtes avec N = 2, et 25 à 31 % avec N = 4 ;
+- le **client** n'est pas saturé : Locust n'a émis aucune alerte CPU ;
+- les **instances** sont pleines : elles passent 76 à 92 % de leur temps dans `get_timeline`.
+
+Ce qui change, c'est la durée de `get_timeline`. Son temps moyen (occupation / débit) passe d'environ 27 ms avec une instance à 40-47 ms avec 2 ou 4 instances, alors que la médiane bouge peu (25 → 29-34 ms) : quelques appels deviennent beaucoup plus lents. Avec 7 ms de surcoût par requête, cela donne 1 / (43 + 7 ms) ≈ 20 req/s par instance, exactement ce qu'on mesure. Plus on ajoute d'instances, plus elles interrogent Datastore en même temps, et plus l'accès aux données ralentit : comme le dit le cours, *« it scales if the data access scales »*. C'est aussi l'idée de la loi d'Amdahl : la partie partagée limite le gain. Je ne peux pas séparer ici l'effet de Datastore et celui du CPU partagé des instances B1, car les deux sont dans `get_timeline`.
+
+**En résumé :** une instance sert environ 28 timelines/s, limitée par son unique worker. Ajouter des instances augmente le débit, mais moins que proportionnellement (×2,9 pour ×4), parce que le temps d'accès aux données augmente avec la charge totale.
 
 ### Partie 3 — Corriger et re-mesurer
 #### Hypothèse
@@ -128,15 +155,15 @@ Avant de mesurer, je regarde comment l'application est lancée, puisque c'est l'
 | Utilisateurs (U) | Oui | Testé jusqu'à U = 10 000 (×100) : 31 → 34 ms | Lookup par clé + lecture de la plage d'index des seuls F + 1 auteurs | Fig. 1a |
 | Posts par utilisateur (P) | Oui | Testé jusqu'à P = 1 000 (×100) : 31 → 34 ms | Index trié par date + `LIMIT 20` : seuls les 20 premiers posts de chaque plage sont lus | Fig. 1a |
 | Followees (F) | Non | Jusqu'à F = 25 (~30 ms). Saut ×18 à F = 30, puis ≈ (F + 1) × 18 ms (1,8 s à F = 100) | `IN` limité à 30 valeurs → boucle de F + 1 requêtes séquentielles, 20 × (F + 1) lectures | Fig. 1b |
-| Instances (N) | | | | Fig. 2a |
+| Instances (N) | Partiellement | ×1,6 avec 2 instances, ×2,9 avec 4 (≈ 28 → 81 req/s) | 1 worker gunicorn synchrone par instance (≈ 28 req/s chacune), puis accès aux données qui ralentit avec la charge totale | Fig. 2a, 2b |
 
 ## 4. Validité
-1. Instances ayant réellement servi chaque mesure : Partie 1 : 1 instance distincte (`X-Instance`) pour chacun des 27 runs, comme attendu avec `fixed1`.
-2. Indépendance des runs et ordre des mesures : Partie 1 : ordre mélangé (graine 42) ; `base` au début (31,7 ms) et à la fin (31,4 ms), donc pas de dérive.
+1. Instances ayant réellement servi chaque mesure : Partie 1 : 1 instance distincte (`X-Instance`) pour chacun des 27 runs, comme attendu avec `fixed1`. Partie 2 : exactement N instances distinctes (1, 2, 4) à chaque point, vérifié pendant la chauffe et dans `fig2a.csv`.
+2. Indépendance des runs et ordre des mesures : Partie 1 : ordre mélangé (graine 42) ; `base` au début (31,7 ms) et à la fin (31,4 ms), donc pas de dérive. Partie 2 : C mélangé (graine fixe) ; C = 8 refait en fin de série : latence client +7 à +14 %, temps serveur inchangé.
 3. Part de la latence due au réseau : Partie 1 : ≈ 14 ms constants entre latence client et temps serveur (`figures/fig1b.csv`).
-4. Échecs comptés et codes HTTP observés : toute réponse ≠ 200 compte comme un échec. Partie 1 : 0 échec sur les runs mesurés ; des 500 uniquement pendant le démarrage de `fixed1` (`raw/incidents/`), d'où l'attente avant mesure.
+4. Échecs comptés et codes HTTP observés : toute réponse ≠ 200 compte comme un échec. Partie 1 : 0 échec sur les runs mesurés ; des 500 uniquement pendant le démarrage de `fixed1` (`raw/incidents/`), d'où l'attente avant mesure. Partie 2 : moins de 1 % d'échecs, tous côté client (DNS `gaierror`, `ConnectionRefused`), aucune 5xx ; exclus du débit et des latences.
 5. Vérification du chemin de code : chemin GQL jamais exécuté ; `IN` limité à 30 valeurs (voir NOTES.md)
-6. Coût de la campagne : Partie 1 : ≈ 1,19 million de lectures d'entités (≈ 0,36 $ avant quota gratuit), dont ≈ 0,88 million pour les seuls runs F ≥ 30 ; ≈ 35 min d'instance B1.
+6. Coût de la campagne : Partie 1 : ≈ 1,19 million de lectures d'entités (≈ 0,36 $ avant quota gratuit), dont ≈ 0,88 million pour les seuls runs F ≥ 30 ; ≈ 35 min d'instance B1. Partie 2 : ≈ 63 000 timelines, soit ≈ 1,3 million de lectures (≈ 0,4 $), et ≈ 1,2 h d'instance B1.
 
 ## 5. Coût de la campagne
 *(à compléter avec la page Facturation)*
