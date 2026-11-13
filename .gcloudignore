@@ -18,3 +18,8 @@ __pycache__/
 # Ignored by the build system
 /setup.cfg
 bench/
+# Données de mesure : jamais envoyées à App Engine (ajout pour le benchmark)
+raw/
+figures/
+logs/
+NOTES.md

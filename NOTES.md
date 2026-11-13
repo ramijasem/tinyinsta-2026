@@ -48,3 +48,6 @@
 - hasattr(datastore.Client, 'gql') == False -> le chemin GQL (main.py L52-56) n'est JAMAIS exécuté ; le README est trompeur.
 - Test direct de la requête de L61-64 sur f30 : 30 valeurs dans IN -> OK (20 posts) ; 31 valeurs -> InvalidArgument 400 "IN supports up to 30 values".
 - Donc F <= 29 (F+1 <= 30 auteurs) : chemin IN (L61-64). F >= 30 : exception avalée (L65) -> boucle de F+1 requêtes séquentielles (L66-72), jusqu'à (F+1)*20 lectures, tri en Python. Réponse HTTP 200 dans les deux cas.
+- 13/11 : 1er lancement de la Partie 2 en échec au déploiement (Cloud Build "Failed to download at least one file") :
+  le log nohup était écrit dans raw/ pendant l'upload. Correction : raw/, figures/, logs/ ajoutés à .gcloudignore,
+  log de lancement écrit hors du dépôt. Aucun changement du code de l'application.
