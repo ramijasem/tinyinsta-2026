@@ -51,3 +51,5 @@
 - 13/11 : 1er lancement de la Partie 2 en échec au déploiement (Cloud Build "Failed to download at least one file") :
   le log nohup était écrit dans raw/ pendant l'upload. Correction : raw/, figures/, logs/ ajoutés à .gcloudignore,
   log de lancement écrit hors du dépôt. Aucun changement du code de l'application.
+- 13/11 15:05 : redéploiement de fixed1 par-dessus la version STOPPED -> build SUCCESS mais CreateVersion bloqué (> 30 min, timeout).
+  Correction : run_part2.sh supprime fixedN existante avant de la redéployer.
