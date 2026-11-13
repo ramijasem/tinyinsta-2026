@@ -1,0 +1,18 @@
+2026-11-13T16:09:34Z prete url=https://fixed4-dot-tinyinsta-2026-511514.ew.r.appspot.com
+2026-11-13T16:09:34Z start _chauffe C=16
+2026-11-13T16:10:05Z locust code 0 : echecs presents (voir CSV)
+chauffe : 4 instance(s) distincte(s) pour 4 attendue(s)
+2026-11-13T16:10:05Z start c08 C=8
+2026-11-13T16:11:06Z locust code 0 : echecs presents (voir CSV)
+2026-11-13T16:11:06Z start c04 C=4
+2026-11-13T16:12:06Z start c01 C=1
+2026-11-13T16:13:07Z start c32 C=32
+2026-11-13T16:14:08Z locust code 0 : echecs presents (voir CSV)
+2026-11-13T16:14:08Z start c16 C=16
+2026-11-13T16:15:08Z locust code 0 : echecs presents (voir CSV)
+2026-11-13T16:15:08Z start c02 C=2
+2026-11-13T16:16:09Z start c64 C=64
+2026-11-13T16:17:10Z locust code 0 : echecs presents (voir CSV)
+2026-11-13T16:17:10Z start c08_fin C=8
+TERMINE 2026-11-13T16:18:10Z
+2026-11-13T16:18:10Z arret fixed4

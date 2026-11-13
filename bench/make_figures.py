@@ -1,7 +1,7 @@
 """Génère les figures et leurs CSV à partir des journaux bruts de raw/.
 Usage (depuis la racine du dépôt) : python bench/make_figures.py
 """
-import csv, os, statistics
+import csv, os, statistics, collections
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -88,3 +88,62 @@ ax.set_title("Fig. 1b — Coût d'une timeline selon F\nU = 120, P = 20, fixed1,
 ax.legend(loc="lower right"); ax.grid(alpha=.3); fig.tight_layout(); fig.savefig(f"{OUT}/fig1b.png", dpi=150)
 
 print("Figures et CSV écrits dans figures/ : fig1a.png, fig1a.csv, fig1b.png, fig1b.csv")
+
+# =====================================================================
+# Partie 2 : capacité (fixed1, fixed2, fixed4 ; jeu base ; C = 1..64)
+# Débit = réponses 200 dont la requête part dans la fenêtre stable [t0 + 5 s, t0 + 55 s], divisées par 50 s.
+# =====================================================================
+RAW2, CS, NS = "raw/part2", [1, 2, 4, 8, 16, 32, 64], [1, 2, 4]
+W0, W1 = 5.0, 55.0
+
+def stats2(path):
+    with open(path) as f:
+        rows = list(csv.DictReader(f))
+    t0 = min(float(r["T_START"]) for r in rows)
+    win = [r for r in rows if W0 <= float(r["T_START"]) - t0 < W1]
+    ok = [r for r in win if r["STATUS"] == "200"]
+    lat = [float(r["LATENCY_MS"]) for r in ok]
+    par_inst = collections.Counter(r["INSTANCE"] for r in ok)
+    return dict(n=len(win), echecs=len(win) - len(ok), debit=len(ok) / (W1 - W0),
+                lat_med=statistics.median(lat), lat_moy=statistics.mean(lat),
+                instances=len(par_inst),
+                part_max=max(par_inst.values()) / len(ok) if ok else 0)
+
+res2 = {n: {c: stats2(f"{RAW2}/n{n}/c{c:02d}.csv") for c in CS} for n in NS}
+lignes = []
+for n in NS:
+    for c in CS:
+        s = res2[n][c]
+        lignes.append([n, c, "base;U=1000;P=20;F=20", s["n"], s["echecs"], s["instances"],
+                       round(s["part_max"] * 100, 1), round(s["debit"], 2),
+                       round(s["lat_med"], 1), round(s["lat_moy"], 1),
+                       round(c / s["debit"] * 1000, 1)])
+entete = ["N_instances", "C_utilisateurs", "jeu", "n_requetes_fenetre", "n_echecs", "n_instances_vues",
+          "part_instance_la_plus_chargee_pct", "debit_req_par_s", "latence_mediane_ms",
+          "latence_moyenne_ms", "little_C_sur_debit_ms"]
+write_csv(f"{OUT}/fig2a.csv", entete, lignes)
+write_csv(f"{OUT}/fig2b.csv", entete, lignes)
+
+fig, ax = plt.subplots(figsize=(7, 4.5))
+for n in NS:
+    ax.plot(CS, [res2[n][c]["debit"] for c in CS], marker="o", label=f"N = {n}")
+ax.set_xscale("log", base=2); ax.set_xticks(CS); ax.set_xticklabels(CS); ax.set_ylim(bottom=0)
+ax.set_xlabel("C (utilisateurs Locust simultanés, échelle log)"); ax.set_ylabel("débit (timelines servies / s)")
+ax.set_title("Fig. 2a — Débit selon la concurrence, par nombre d'instances\njeu base, fixedN, 60 s par point (fenêtre stable de 50 s)")
+ax.legend(); ax.grid(alpha=.3); fig.tight_layout(); fig.savefig(f"{OUT}/fig2a.png", dpi=150)
+
+fig, ax = plt.subplots(figsize=(7, 4.5))
+for i, n in enumerate(NS):
+    col = f"C{i}"
+    ax.plot(CS, [res2[n][c]["lat_med"] for c in CS], marker="o", color=col, label=f"N = {n} : latence médiane mesurée")
+    ax.plot(CS, [c / res2[n][c]["debit"] * 1000 for c in CS], ls="--", color=col, label=f"N = {n} : Little, C / débit")
+ax.set_xscale("log", base=2); ax.set_yscale("log"); ax.set_xticks(CS); ax.set_xticklabels(CS)
+ax.set_xlabel("C (utilisateurs Locust simultanés, échelle log)"); ax.set_ylabel("latence (ms, échelle log)")
+ax.set_title("Fig. 2b — Latence selon la concurrence et prédiction de la loi de Little\njeu base, fixedN, 60 s par point (fenêtre stable de 50 s)")
+ax.legend(fontsize=7); ax.grid(alpha=.3, which="both"); fig.tight_layout(); fig.savefig(f"{OUT}/fig2b.png", dpi=150)
+
+print("Partie 2 :")
+for l in lignes:
+    print(f"  N={l[0]} C={l[1]:2d} debit={l[7]:6.1f}/s lat_med={l[8]:7.1f} ms lat_moy={l[9]:7.1f} ms "
+          f"Little={l[10]:7.1f} ms instances={l[5]} part_max={l[6]:5.1f}% echecs={l[4]}")
+print("Figures et CSV écrits dans figures/ : fig2a.png, fig2a.csv, fig2b.png, fig2b.csv")
