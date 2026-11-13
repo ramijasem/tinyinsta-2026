@@ -25,7 +25,8 @@ echo "$(date -u +%FT%TZ) prete url=$URL" | tee -a "$OUT/manifest.txt"
 run() {  # run <nom_fichier> <C> <durée>
   echo "$(date -u +%FT%TZ) start $1 C=$2" | tee -a "$OUT/manifest.txt"
   TINY_PREFIX=base TINY_USERS=1000 TINY_LOG="$OUT/$1.csv" \
-    python -m locust -f bench/locustfile.py --headless -u "$2" -r "$2" -t "$3" --only-summary --host "$URL"
+    python -m locust -f bench/locustfile.py --headless -u "$2" -r "$2" -t "$3" --only-summary --host "$URL" \
+    || echo "$(date -u +%FT%TZ) locust code $? : echecs presents (voir CSV)" | tee -a "$OUT/manifest.txt"
 }
 
 run _chauffe 16 30s

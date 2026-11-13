@@ -53,3 +53,5 @@
   log de lancement écrit hors du dépôt. Aucun changement du code de l'application.
 - 13/11 15:05 : redéploiement de fixed1 par-dessus la version STOPPED -> build SUCCESS mais CreateVersion bloqué (> 30 min, timeout).
   Correction : run_part2.sh supprime fixedN existante avant de la redéployer.
+- 13/11 15:47 : chauffe Partie 2 (N=1, C=16) : 3 échecs client sur 1011 (2 gaierror DNS Cloud Shell, 1 ConnectionRefused).
+  Locust sort en code 1 -> set -e arrêtait le script. Correction : les échecs sont enregistrés dans le CSV, le script continue.
