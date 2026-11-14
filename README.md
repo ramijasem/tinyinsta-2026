@@ -144,6 +144,19 @@ Ce qui change, c'est la durée de `get_timeline`. Son temps moyen (occupation / 
 
 ### Partie 3 — Corriger et re-mesurer
 #### Hypothèse
+
+**Le goulot choisi : le worker unique** mis en évidence en Partie 2. Une instance ne sert qu'environ 28 timelines/s parce que `gunicorn`, lancé sans option, n'a qu'un worker synchrone : pendant qu'une requête attend Datastore, l'instance ne fait rien d'autre.
+
+**La correction.** Je lance gunicorn avec `--threads 8`. Le code de l'application ne change pas, seule la ligne `entrypoint` change. Elle est déployée dans une version à part, `thr1`, avec `--no-promote` (`deploy_threads.sh`, qui est une copie de `deploy_fixed.sh` où seules la ligne `entrypoint` et le nom de version diffèrent).
+
+**Pourquoi ça devrait marcher.** Une timeline passe l'essentiel de son temps à attendre les réponses de Datastore. En Python, un thread qui attend le réseau libère le GIL : pendant qu'un thread attend, un autre peut avancer sur sa propre requête. Avec 8 threads, une instance peut avoir jusqu'à 8 timelines en cours en même temps.
+
+**Ce que j'attends (Fig. 3, N = 1, mêmes C que la Partie 2).**
+- C = 1 : aucune différence, puisqu'il n'y a qu'une requête à la fois de toute façon.
+- C ≥ 2 : un débit qui dépasse les 28 req/s. Le nouveau plafond devrait venir du CPU de l'instance B1 : la partie calcul (Flask, JSON, décodage des entités) ne se parallélise pas à cause du GIL. J'attends un plafond 2 à 3 fois plus haut (60 à 80 req/s), atteint vers C = 8.
+- Latence : nettement plus basse à C égal. Au-delà de la saturation, la file d'attente revient, mais plus tard. La loi de Little doit rester vraie.
+
+**Ce que la correction devrait coûter.** En complexité, presque rien : une option. En argent, une instance B1 coûte le même prix, mais elle sert plus de requêtes, donc il faut moins d'instances pour une même charge. Les lectures Datastore par timeline ne changent pas. Côté cohérence des données, aucun risque : une timeline ne fait que lire. Le seul point à vérifier, c'est que le code supporte plusieurs threads : le client Datastore global (`main.py` L10) est partagé, et `get_timeline` ne modifie aucune variable globale.
 #### Protocole
 #### Figures
 #### Interprétation
