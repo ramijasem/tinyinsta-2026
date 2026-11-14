@@ -147,3 +147,38 @@ for l in lignes:
     print(f"  N={l[0]} C={l[1]:2d} debit={l[7]:6.1f}/s lat_med={l[8]:7.1f} ms lat_moy={l[9]:7.1f} ms "
           f"Little={l[10]:7.1f} ms instances={l[5]} part_max={l[6]:5.1f}% echecs={l[4]}")
 print("Figures et CSV écrits dans figures/ : fig2a.png, fig2a.csv, fig2b.png, fig2b.csv")
+
+# =====================================================================
+# Partie 3 : avant / après (même protocole que la Partie 2, N = 1)
+# avant = fixed1 (gunicorn, 1 worker synchrone) ; après = thr1 (gunicorn --threads 8)
+# =====================================================================
+if os.path.isdir("raw/part3/n1"):
+    avant = {c: stats2(f"raw/part2/n1/c{c:02d}.csv") for c in CS}
+    apres = {c: stats2(f"raw/part3/n1/c{c:02d}.csv") for c in CS}
+    lignes3 = []
+    for nom, res in (("avant_fixed1_1worker", avant), ("apres_thr1_8threads", apres)):
+        for c in CS:
+            s = res[c]
+            lignes3.append([nom, 1, c, s["n"], s["echecs"], s["instances"], round(s["debit"], 2),
+                            round(s["lat_med"], 1), round(s["lat_moy"], 1), round(c / s["debit"] * 1000, 1)])
+    write_csv(f"{OUT}/fig3.csv",
+              ["version", "N_instances", "C_utilisateurs", "n_requetes_fenetre", "n_echecs", "n_instances_vues",
+               "debit_req_par_s", "latence_mediane_ms", "latence_moyenne_ms", "little_C_sur_debit_ms"], lignes3)
+
+    fig, (a1, a2) = plt.subplots(1, 2, figsize=(11, 4.5))
+    for nom, res, col in (("avant : 1 worker synchrone (fixed1)", avant, "C0"),
+                          ("après : --threads 8 (thr1)", apres, "C1")):
+        a1.plot(CS, [res[c]["debit"] for c in CS], marker="o", color=col, label=nom)
+        a2.plot(CS, [res[c]["lat_moy"] for c in CS], marker="o", color=col, label=nom)
+    for a in (a1, a2):
+        a.set_xscale("log", base=2); a.set_xticks(CS); a.set_xticklabels(CS); a.grid(alpha=.3, which="both")
+        a.set_xlabel("C (utilisateurs Locust simultanés, échelle log)")
+    a1.set_ylim(bottom=0); a1.set_ylabel("débit (timelines servies / s)"); a1.legend()
+    a2.set_yscale("log"); a2.set_ylabel("latence moyenne (ms, échelle log)")
+    fig.suptitle("Fig. 3 — Avant / après : plusieurs threads gunicorn par instance\n"
+                 "jeu base, N = 1 instance B1, même protocole que la Partie 2 (60 s par point, fenêtre de 50 s)")
+    fig.tight_layout(); fig.savefig(f"{OUT}/fig3.png", dpi=150)
+    print("Partie 3 :")
+    for l in lignes3:
+        print(f"  {l[0]:22s} C={l[2]:2d} debit={l[6]:6.1f}/s lat_med={l[7]:7.1f} ms lat_moy={l[8]:7.1f} ms echecs={l[4]}")
+    print("Figure et CSV écrits dans figures/ : fig3.png, fig3.csv")
