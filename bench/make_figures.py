@@ -1,7 +1,7 @@
 """Génère les figures et leurs CSV à partir des journaux bruts de raw/.
 Usage (depuis la racine du dépôt) : python bench/make_figures.py
 """
-import csv, os, statistics, collections
+import csv, os, statistics, collections, glob, datetime
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -150,13 +150,30 @@ print("Figures et CSV écrits dans figures/ : fig2a.png, fig2a.csv, fig2b.png, f
 
 # =====================================================================
 # Partie 3 : avant / après (même protocole que la Partie 2, N = 1)
-# avant = fixed1 (gunicorn, 1 worker synchrone) ; après = thr1 (gunicorn --threads 8)
+# avant = fixed1 (1 worker synchrone) ; après = thr1 (gunicorn --threads 8), 2 runs identiques
 # =====================================================================
-if os.path.isdir("raw/part3/n1"):
+RUNS3 = [("thr1_run1", "raw/part3/n1_run1"), ("thr1_run2", "raw/part3/n1_run2")]
+if all(os.path.isdir(d) for _, d in RUNS3):
+    def serie_temps(d, pas=10):
+        rows = []
+        for p in glob.glob(f"{d}/*.csv"):
+            if p.endswith("request_log_appengine.csv"):
+                continue
+            with open(p) as f:
+                rows += [r for r in csv.DictReader(f) if r["STATUS"] == "200"]
+        rows.sort(key=lambda r: float(r["T_START"]))
+        t0 = float(rows[0]["T_START"])
+        b = collections.defaultdict(list)
+        for r in rows:
+            b[int((float(r["T_START"]) - t0) // pas)].append(r)
+        out = [(k * pas, len(v) / pas, sum(float(r["SERVER_MS"]) for r in v) / (pas * 10), v[0]["USERS"])
+               for k, v in sorted(b.items())]
+        return t0, out
+
     avant = {c: stats2(f"raw/part2/n1/c{c:02d}.csv") for c in CS}
-    apres = {c: stats2(f"raw/part3/n1/c{c:02d}.csv") for c in CS}
+    apres = {nom: {c: stats2(f"{d}/c{c:02d}.csv") for c in CS} for nom, d in RUNS3}
     lignes3 = []
-    for nom, res in (("avant_fixed1_1worker", avant), ("apres_thr1_8threads", apres)):
+    for nom, res in [("avant_fixed1_1worker", avant)] + list(apres.items()):
         for c in CS:
             s = res[c]
             lignes3.append([nom, 1, c, s["n"], s["echecs"], s["instances"], round(s["debit"], 2),
@@ -165,20 +182,47 @@ if os.path.isdir("raw/part3/n1"):
               ["version", "N_instances", "C_utilisateurs", "n_requetes_fenetre", "n_echecs", "n_instances_vues",
                "debit_req_par_s", "latence_mediane_ms", "latence_moyenne_ms", "little_C_sur_debit_ms"], lignes3)
 
-    fig, (a1, a2) = plt.subplots(1, 2, figsize=(11, 4.5))
-    for nom, res, col in (("avant : 1 worker synchrone (fixed1)", avant, "C0"),
-                          ("après : --threads 8 (thr1)", apres, "C1")):
-        a1.plot(CS, [res[c]["debit"] for c in CS], marker="o", color=col, label=nom)
-        a2.plot(CS, [res[c]["lat_moy"] for c in CS], marker="o", color=col, label=nom)
-    for a in (a1, a2):
-        a.set_xscale("log", base=2); a.set_xticks(CS); a.set_xticklabels(CS); a.grid(alpha=.3, which="both")
-        a.set_xlabel("C (utilisateurs Locust simultanés, échelle log)")
-    a1.set_ylim(bottom=0); a1.set_ylabel("débit (timelines servies / s)"); a1.legend()
-    a2.set_yscale("log"); a2.set_ylabel("latence moyenne (ms, échelle log)")
-    fig.suptitle("Fig. 3 — Avant / après : plusieurs threads gunicorn par instance\n"
-                 "jeu base, N = 1 instance B1, même protocole que la Partie 2 (60 s par point, fenêtre de 50 s)")
+    temps = {nom: serie_temps(d) for nom, d in RUNS3}
+    write_csv(f"{OUT}/fig3_temps.csv", ["run", "t_s", "debit_req_par_s", "occupation_get_timeline_pct", "C_utilisateurs"],
+              [[nom, t, round(x, 1), round(o), c] for nom, (_, s) in temps.items() for t, x, o, c in s])
+
+    # pendingTime App Engine (run 1), aligné sur le début de la charge côté client
+    pend = []
+    lp = "raw/part3/n1_run1/request_log_appengine.csv"
+    if os.path.exists(lp):
+        sec = lambda s: float(s.rstrip("s")) * 1000 if s else 0.0
+        t0c = temps["thr1_run1"][0]
+        b = collections.defaultdict(list)
+        with open(lp) as f:
+            for d, lat, p in csv.reader(f):
+                ts = datetime.datetime.fromisoformat(d.replace("Z", "+00:00")).timestamp()
+                if ts >= t0c:
+                    b[int((ts - t0c) // 10)].append(sec(p))
+        pend = [(k * 10, statistics.median(v)) for k, v in sorted(b.items())]
+        write_csv(f"{OUT}/fig3_pending.csv", ["t_s", "pending_median_ms"], [[t, round(p, 1)] for t, p in pend])
+
+    fig, axs = plt.subplots(1, 3 if pend else 2, figsize=(15 if pend else 11, 4.5))
+    a1, a2 = axs[0], axs[1]
+    a1.plot(CS, [avant[c]["debit"] for c in CS], marker="o", color="C0", label="avant : 1 worker (fixed1)")
+    for (nom, res), col in zip(apres.items(), ("C1", "C3")):
+        a1.plot(CS, [res[c]["debit"] for c in CS], marker="o", color=col, label=f"après : --threads 8 ({nom})")
+    a1.set_xscale("log", base=2); a1.set_xticks(CS); a1.set_xticklabels(CS); a1.set_ylim(bottom=0)
+    a1.set_xlabel("C (utilisateurs simultanés, échelle log)"); a1.set_ylabel("débit (timelines / s)")
+    a1.set_title("(a) débit selon C (fenêtre 5-55 s de chaque run)", fontsize=9); a1.legend(fontsize=7); a1.grid(alpha=.3)
+    for (nom, (_, s)), col in zip(temps.items(), ("C1", "C3")):
+        s = [x for x in s if x[0] <= 240]
+        a2.plot([x[0] for x in s], [x[1] for x in s], marker=".", color=col, label=nom)
+    a2.axhline(statistics.median(avant[c]["debit"] for c in CS if c >= 2), color="C0", ls="--", label="plafond fixed1")
+    a2.set_xlabel("temps depuis le début de la charge (s)"); a2.set_ylabel("débit (timelines / s, tranches de 10 s)")
+    a2.set_title("(b) débit dans le temps : bascule vers t ≈ 50 s", fontsize=9); a2.legend(fontsize=7); a2.grid(alpha=.3)
+    if pend:
+        a3 = axs[2]; p = [x for x in pend if x[0] <= 240]
+        a3.plot([x[0] for x in p], [x[1] for x in p], marker=".", color="C1")
+        a3.set_xlabel("temps depuis le début de la charge (s)"); a3.set_ylabel("pendingTime médian App Engine (ms)")
+        a3.set_title("(c) attente dans la file d'App Engine (thr1_run1)", fontsize=9); a3.grid(alpha=.3)
+    fig.suptitle("Fig. 3 — Avant / après : gunicorn --threads 8, jeu base, N = 1 instance B1, même protocole que la Partie 2")
     fig.tight_layout(); fig.savefig(f"{OUT}/fig3.png", dpi=150)
     print("Partie 3 :")
     for l in lignes3:
         print(f"  {l[0]:22s} C={l[2]:2d} debit={l[6]:6.1f}/s lat_med={l[7]:7.1f} ms lat_moy={l[8]:7.1f} ms echecs={l[4]}")
-    print("Figure et CSV écrits dans figures/ : fig3.png, fig3.csv")
+    print("Figure et CSV écrits dans figures/ : fig3.png, fig3.csv, fig3_temps.csv" + (", fig3_pending.csv" if pend else ""))
