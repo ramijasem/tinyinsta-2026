@@ -1,0 +1,15 @@
+Service description,Service ID,SKU description,SKU ID,Usage amount,Usage unit,Usage cost ($),Savings programmes ($),Other savings ($),Unrounded subtotal ($),Subtotal ($),Percent change in subtotal compared to previous period
+Cloud Logging,5490-F7B7-8DF6,Log Storage cost,143F-A1B0-E0BE,0.15,gibibyte,0.00,0.00,0.00,0.000000,0.00,New
+App Engine,F17B-412E-CB64,Out Bandwidth,37F0-8E44-4CAA,0.09,gibibyte,0.00,0.00,0.00,0.000000,0.00,New
+App Engine,F17B-412E-CB64,Cloud Firestore Entity Writes,4BFF-324E-4B50,"733,500",count,1.21,0.00,-1.21,0.000000,0.00,New
+App Engine,F17B-412E-CB64,Cloud Firestore Storage,5C80-18C6-21C5,0.1,gibibyte month,0.00,0.00,0.00,0.000000,0.00,New
+App Engine,F17B-412E-CB64,Cloud Firestore Small Ops,6949-BBE8-AD90,"353,600",count,0.00,0.00,0.00,0.000000,0.00,New
+Artifact Registry,149C-F9EC-3994,Artifact Registry Storage,8502-299A-ABAF,0.15,gibibyte month,0.00,0.00,0.00,0.000000,0.00,New
+Cloud Build,8B5D-EF7D-EB12,Build time e2-standard-2,A464-9020-6404,4.73,minute,0.00,0.00,0.00,0.000000,0.00,New
+App Engine,F17B-412E-CB64,Cloud Firestore Entity Deletes,E2D4-11D8-16C0,"338,600",count,0.06,0.00,-0.06,0.000000,0.00,New
+App Engine,F17B-412E-CB64,Frontend Instances,E2EB-F679-D108,1.32,hour,0.00,0.00,0.00,0.000000,0.00,New
+App Engine,F17B-412E-CB64,Backend Instances,EF56-1B38-498D,4.52,hour,0.00,0.00,0.00,0.000000,0.00,New
+App Engine,F17B-412E-CB64,Cloud Firestore Read Ops,FF6D-2156-62C2,"3,369,421",count,1.96,0.00,-1.96,0.000000,0.00,New
+,,,,,,,,Subtotal,0.000000,0.00
+,,,,,,,,Tax,0.000000,0.00
+,,,,,,,,Filtered total,0.000000,0.00
