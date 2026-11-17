@@ -79,16 +79,16 @@ Ce n'est pas Datastore qui ne passe pas à l'échelle ici, mais la façon dont l
 
 **Part du réseau.** L'écart entre latence client et temps serveur reste autour de 14 ms quel que soit le jeu (13,8 ms pour `base`, 15,2 ms pour `f100`). Il pèse environ 30 % de la latence pour `base`, mais moins de 1 % pour F = 100. Ces 14 ms ne sont pas que du réseau : ils incluent aussi la sérialisation JSON, Flask/gunicorn et le load balancer de Google.
 
-**Lectures Datastore et coût de 1 million de timelines.** Une timeline lit 1 entité `User` (lookup), puis les posts renvoyés : 20 avec le `IN`, et 20 × (F + 1) avec la boucle, puisque chaque auteur renvoie ses 20 posts. Les entrées d'index ne sont pas facturées, car la requête n'a qu'une propriété de plage. Au tarif de [Firestore en mode Datastore](https://cloud.google.com/datastore/docs/pricing), soit ≈ 0,06 $ pour 100 000 lectures d'entités au-delà de 50 000 lectures gratuites par jour (prix effectif déduit de ma facture : 1,96 $ pour 3,37 millions de lectures, voir section 5) :
+**Lectures Datastore et coût de 1 million de timelines.** Une timeline lit 1 entité `User` (lookup), puis les posts renvoyés : 20 avec le `IN`, et 20 × (F + 1) avec la boucle, puisque chaque auteur renvoie ses 20 posts. Les entrées d'index ne sont pas facturées, car la requête n'a qu'une propriété de plage. Au tarif de [Firestore en mode Datastore](https://cloud.google.com/datastore/docs/pricing), soit ≈ 0,06 USD pour 100 000 lectures d'entités au-delà de 50 000 lectures gratuites par jour (prix effectif déduit de ma facture : 1,96 USD pour 3,37 millions de lectures, voir section 5) :
 
 | Cas | Lectures par timeline | Coût de 1 million de timelines |
 |---|---|---|
-| U ou P quelconque, F ≤ 25 | 1 + 20 = 21 | ≈ 12,6 $ |
-| F = 30 | 1 + 20 × 31 = 621 | ≈ 373 $ |
-| F = 50 | 1 + 20 × 51 = 1 021 | ≈ 613 $ |
-| F = 100 | 1 + 20 × 101 = 2 021 | ≈ 1 213 $ |
+| U ou P quelconque, F ≤ 25 | 1 + 20 = 21 | ≈ 12,6 USD |
+| F = 30 | 1 + 20 × 31 = 621 | ≈ 373 USD |
+| F = 50 | 1 + 20 × 51 = 1 021 | ≈ 613 USD |
+| F = 100 | 1 + 20 × 101 = 2 021 | ≈ 1 213 USD |
 
-Le coût ne dépend ni de U ni de P, mais il est multiplié par 30 dès F = 30, puis il croît linéairement. Le problème de F coûte du temps, et aussi de l'argent. Avec le *back-of-the-envelope* « Instagram » du cours (50 milliards d'éléments de feed vus par jour, soit ~2,5 milliards de timelines de 20 posts), cela ferait ≈ 31 000 $ de lectures par jour avec F ≤ 25, et ≈ 3 millions $ par jour si chacun suivait 100 comptes.
+Le coût ne dépend ni de U ni de P, mais il est multiplié par 30 dès F = 30, puis il croît linéairement. Le problème de F coûte du temps, et aussi de l'argent. Avec le *back-of-the-envelope* « Instagram » du cours (50 milliards d'éléments de feed vus par jour, soit ~2,5 milliards de timelines de 20 posts), cela ferait ≈ 31 000 USD de lectures par jour avec F ≤ 25, et ≈ 3 millions USD par jour si chacun suivait 100 comptes.
 
 **Limites.** Les runs à F ≥ 30 ne contiennent que 30 à 93 requêtes en 60 s (une requête dure jusqu'à 2 s) : leurs médianes sont moins précises. Chaque jeu a été mesuré sur un seul utilisateur (`<préfixe>_u00000`). Tous les utilisateurs d'un jeu ont exactement F followees et P posts, ce qui les rend équivalents pour la requête, mais un effet de cache côté Datastore n'est pas exclu.
 
@@ -212,7 +212,7 @@ La documentation d'App Engine ne dit pas comment le planificateur choisit le nom
 3. Part de la latence due au réseau : Partie 1 : ≈ 14 ms constants entre latence client et temps serveur (`figures/fig1b.csv`).
 4. Échecs comptés et codes HTTP observés : toute réponse ≠ 200 compte comme un échec. Partie 1 : 0 échec sur les runs mesurés ; des 500 uniquement pendant le démarrage de `fixed1` (`raw/incidents/`), d'où l'attente avant mesure. Partie 2 : moins de 1 % d'échecs, tous côté client (DNS `gaierror`, `ConnectionRefused`), aucune 5xx ; exclus du débit et des latences. Partie 3 : idem, moins de 1 % d'échecs, tous côté client.
 5. Vérification du chemin de code : chemin GQL jamais exécuté ; `IN` limité à 30 valeurs (voir NOTES.md). Partie 3 : `diff` des scripts (seule la ligne `entrypoint` change) ; `pendingTime` des logs App Engine pour localiser l'attente.
-6. Coût de la campagne : au total 3,23 $ brut, 0 $ payé, volumes confirmés par la facture (section 5). Partie 1 : ≈ 1,19 million de lectures d'entités (≈ 0,7 $ avant quota gratuit), dont ≈ 0,88 million pour les seuls runs F ≥ 30 ; ≈ 35 min d'instance B1. Partie 2 : ≈ 63 000 timelines, soit ≈ 1,3 million de lectures (≈ 0,8 $), et ≈ 1,2 h d'instance B1. Partie 3 : ≈ 37 000 timelines, soit ≈ 0,8 million de lectures (≈ 0,5 $), et ≈ 25 min d'instance B1.
+6. Coût de la campagne : au total 3,23 USD brut, 0 USD payé, volumes confirmés par la facture (section 5). Partie 1 : ≈ 1,19 million de lectures d'entités (≈ 0,7 USD avant quota gratuit), dont ≈ 0,88 million pour les seuls runs F ≥ 30 ; ≈ 35 min d'instance B1. Partie 2 : ≈ 63 000 timelines, soit ≈ 1,3 million de lectures (≈ 0,8 USD), et ≈ 1,2 h d'instance B1. Partie 3 : ≈ 37 000 timelines, soit ≈ 0,8 million de lectures (≈ 0,5 USD), et ≈ 25 min d'instance B1.
 
 ## 5. Coût de la campagne
 
@@ -220,21 +220,21 @@ Source : rapport de facturation GCP du projet `tinyinsta-2026-511514`, du 13/10 
 
 | Poste | Volume facturé | Mon estimation | Coût brut | Payé |
 |---|---|---|---|---|
-| Écritures Datastore | 733 500 | ≈ 730 000 (≈ 395 000 conservées + ≈ 340 000 des seeds ratés) | 1,21 $ | 0 $ |
-| Suppressions Datastore | 338 600 | 338 600 (somme de toutes les purges) | 0,06 $ | 0 $ |
-| Lectures Datastore | 3 369 421 | ≈ 3,3 millions (Partie 1 : 1,2 M ; Partie 2 : 1,3 M ; Partie 3 : 0,8 M ; plus les comptages) | 1,96 $ | 0 $ |
-| *Small ops* (requêtes keys-only des purges et comptages) | 353 600 | — | 0 $ | 0 $ |
-| Instances backend B1 (`fixedN`, `thr1`) | 4,52 h | ≈ 2 à 3 h de mesure | 0 $ | 0 $ |
-| Instance frontend F1 (version par défaut) | 1,32 h | — | 0 $ | 0 $ |
-| Cloud Build, stockage, logs | 4,7 min de build, < 0,2 Gio | — | 0 $ | 0 $ |
-| **Total** | | | **3,23 $** | **0 $** |
+| Écritures Datastore | 733 500 | ≈ 730 000 (≈ 395 000 conservées + ≈ 340 000 des seeds ratés) | 1,21 USD | 0 USD |
+| Suppressions Datastore | 338 600 | 338 600 (somme de toutes les purges) | 0,06 USD | 0 USD |
+| Lectures Datastore | 3 369 421 | ≈ 3,3 millions (Partie 1 : 1,2 M ; Partie 2 : 1,3 M ; Partie 3 : 0,8 M ; plus les comptages) | 1,96 USD | 0 USD |
+| *Small ops* (requêtes keys-only des purges et comptages) | 353 600 | — | 0 USD | 0 USD |
+| Instances backend B1 (`fixedN`, `thr1`) | 4,52 h | ≈ 2 à 3 h de mesure | 0 USD | 0 USD |
+| Instance frontend F1 (version par défaut) | 1,32 h | — | 0 USD | 0 USD |
+| Cloud Build, stockage, logs | 4,7 min de build, < 0,2 Gio | — | 0 USD | 0 USD |
+| **Total** | | | **3,23 USD** | **0 USD** |
 
 **Le modèle de coût est validé par la facture.** Les suppressions tombent exactement sur la somme de mes purges, les écritures à 0,5 % près, et les lectures à environ 2 % près. Le modèle « 1 lookup + 20 posts » (ou 1 + 20 × (F + 1) au-delà de F = 30) décrit donc bien ce que Datastore facture.
 
 **Écarts et enseignements.**
-- Le prix effectif d'une lecture est d'environ **0,06 $ pour 100 000** (1,96 $ pour 3,37 millions de lectures, après le quota gratuit), soit le double du chiffre que j'avais d'abord retenu. J'ai corrigé le coût de 1 million de timelines en Partie 1 en conséquence.
+- Le prix effectif d'une lecture est d'environ **0,06 USD pour 100 000** (1,96 USD pour 3,37 millions de lectures, après le quota gratuit), soit le double du chiffre que j'avais d'abord retenu. J'ai corrigé le coût de 1 million de timelines en Partie 1 en conséquence.
 - Les instances n'ont rien coûté : 4,52 h de B1 et 1,32 h de F1 restent sous les quotas gratuits quotidiens (9 h de backend et 28 h de frontend par jour). Les 4,52 h dépassent le temps de mesure parce qu'elles incluent les déploiements, les attentes de démarrage, les chauffes et le déploiement resté bloqué.
-- Tout le coût vient de **Datastore** : écritures 37 %, lectures 61 %, suppressions 2 %. Les seeds ratés (problème gRPC, voir `NOTES.md`) représentent à eux seuls la moitié des écritures et toutes les suppressions, soit environ 0,7 $, plus de 20 % de la campagne.
+- Tout le coût vient de **Datastore** : écritures 37 %, lectures 61 %, suppressions 2 %. Les seeds ratés (problème gRPC, voir `NOTES.md`) représentent à eux seuls la moitié des écritures et toutes les suppressions, soit environ 0,7 USD, plus de 20 % de la campagne.
 - Les runs F ≥ 30 de la Partie 1 ont lu ≈ 0,88 million d'entités en 15 minutes : le problème de F se voit directement sur la facture.
 
-**Au total :** 3,23 $ de coût brut, entièrement couverts par les crédits Education. C'est dans la fourchette annoncée par le sujet (moins de 1 $ pour les données, 2 à 5 $ pour les mesures), et loin de l'alerte budgétaire à 20 $.
+**Au total :** 3,23 USD de coût brut, entièrement couverts par les crédits Education. C'est dans la fourchette annoncée par le sujet (moins de 1 USD pour les données, 2 à 5 USD pour les mesures), et loin de l'alerte budgétaire à 20 USD.
