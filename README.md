@@ -9,6 +9,7 @@ Rapport du projet Données massives et Cloud. Sujet : [SUJET.md](SUJET.md). READ
 - Jeux de données : générés du 06/11 au 08/11/2026 avec `bench/seed_exact.py`, vérifiés par `bench/check_datasets.py` (27/27 exacts)
 - Client (seed et charge) : Cloud Shell — Python 3.12, locust 2.46.7, google-cloud-datastore 2.19.0
 - Versions de mesure (instances B1, manual scaling, `--no-promote`) : `fixed1` (13/11, Parties 1 et 2), `fixed2` et `fixed4` (13/11, Partie 2), `thr1` = `fixed1` + `gunicorn --threads 8` (14/11, Partie 3, deux runs à 17:20 et 18:09 UTC)
+- **Reproduire** : toutes les figures et leurs CSV se régénèrent en une commande à partir de `raw/` : `pip install matplotlib && python bench/make_figures.py`. Mesures : `bench/run_part1.sh`, `bench/run_part2.sh N`, `bench/run_part3.sh N` ; vérification des jeux : `python bench/check_datasets.py`. Journal détaillé des incidents : [`NOTES.md`](NOTES.md).
 
 ## 2. Résultats
 
