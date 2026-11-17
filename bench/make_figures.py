@@ -85,7 +85,7 @@ errbar(ins, [Fs[i] for i in k], [ss[i] for i in k], "lat", alpha=.7)
 ins.set_ylim(bottom=0); ins.set_title("zoom F ≤ 25 (chemin IN)", fontsize=8)
 ins.tick_params(labelsize=7); ins.grid(alpha=.3)
 ax.set_title("Fig. 1b — Coût d'une timeline selon F\nU = 120, P = 20, fixed1, 1 requête à la fois, 60 s par jeu (barres : quartiles)")
-ax.legend(loc="lower right"); ax.grid(alpha=.3); fig.tight_layout(); fig.savefig(f"{OUT}/fig1b.png", dpi=150)
+ax.legend(loc="upper center", bbox_to_anchor=(0.62, 1.0), fontsize=8); ax.grid(alpha=.3); fig.tight_layout(); fig.savefig(f"{OUT}/fig1b.png", dpi=150)
 
 print("Figures et CSV écrits dans figures/ : fig1a.png, fig1a.csv, fig1b.png, fig1b.csv")
 

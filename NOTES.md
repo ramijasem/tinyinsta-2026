@@ -41,17 +41,16 @@
 - Purges lentes : requêtes sur des plages fraîchement supprimées (tombstones). Attendre plusieurs heures entre la fin des seeds/purges (08/11 16h30) et les mesures de la Partie 1.
 - Le seed n'influence pas les mesures : il remplit la base, l'application mesurée (main.py sur App Engine) a son propre client.
 
-## Coût (à compléter avec la page Facturation)
-- Écritures du seed final : ~400 000 entités, plus les écritures et suppressions des tentatives ratées (environ 300 000 entités supplémentaires)
-
 ## Chemin de code de get_timeline (vérifié le 10/11)
-- hasattr(datastore.Client, 'gql') == False -> le chemin GQL (main.py L52-56) n'est JAMAIS exécuté ; le README est trompeur.
+- hasattr(datastore.Client, 'gql') == False -> le chemin GQL (main.py L52-56) n'est jamais exécuté, alors que le README d'origine présente la requête comme du GQL.
 - Test direct de la requête de L61-64 sur f30 : 30 valeurs dans IN -> OK (20 posts) ; 31 valeurs -> InvalidArgument 400 "IN supports up to 30 values".
 - Donc F <= 29 (F+1 <= 30 auteurs) : chemin IN (L61-64). F >= 30 : exception avalée (L65) -> boucle de F+1 requêtes séquentielles (L66-72), jusqu'à (F+1)*20 lectures, tri en Python. Réponse HTTP 200 dans les deux cas.
-- 13/11 : 1er lancement de la Partie 2 en échec au déploiement (Cloud Build "Failed to download at least one file") :
+
+## Incidents pendant les mesures (13/11)
+- 1er lancement de la Partie 2 en échec au déploiement (Cloud Build "Failed to download at least one file") :
   le log nohup était écrit dans raw/ pendant l'upload. Correction : raw/, figures/, logs/ ajoutés à .gcloudignore,
   log de lancement écrit hors du dépôt. Aucun changement du code de l'application.
-- 13/11 15:05 : redéploiement de fixed1 par-dessus la version STOPPED -> build SUCCESS mais CreateVersion bloqué (> 30 min, timeout).
+- 15:05 : redéploiement de fixed1 par-dessus la version STOPPED -> build SUCCESS mais CreateVersion bloqué (> 30 min, timeout).
   Correction : run_part2.sh supprime fixedN existante avant de la redéployer.
-- 13/11 15:47 : chauffe Partie 2 (N=1, C=16) : 3 échecs client sur 1011 (2 gaierror DNS Cloud Shell, 1 ConnectionRefused).
+- 15:47 : chauffe Partie 2 (N=1, C=16) : 3 échecs client sur 1011 (2 gaierror DNS Cloud Shell, 1 ConnectionRefused).
   Locust sort en code 1 -> set -e arrêtait le script. Correction : les échecs sont enregistrés dans le CSV, le script continue.

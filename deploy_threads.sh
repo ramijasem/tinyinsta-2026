@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Déploie une version à N instances fixes (manual scaling, sans autoscaling),
-# sans lui envoyer le trafic par défaut. Utilisé pour les parties 1 et 2.
+# Partie 3 : comme deploy_fixed.sh, mais gunicorn est lancé avec --threads 8.
+# Déploie une version à N instances fixes (manual scaling), sans lui envoyer le trafic par défaut.
 #
-#   ./deploy_fixed.sh 1        -> version "fixed1", URL https://fixed1-dot-<PROJET>.<REGION>.r.appspot.com
-#   ./deploy_fixed.sh 4        -> version "fixed4"
-#   ./deploy_fixed.sh 2 --project mon-projet   (arguments supplémentaires passés à gcloud)
+#   ./deploy_threads.sh 1      -> version "thr1", URL https://fixed1-dot-<PROJET>.<REGION>.r.appspot.com
+#   ./deploy_threads.sh 4      -> version "thr4"
+#   ./deploy_threads.sh 2 --project mon-projet   (arguments supplémentaires passés à gcloud)
 #
 # ATTENTION : une instance en manual scaling est facturée tant que la version tourne.
-# Arrêtez-la dès la fin des mesures :  gcloud app versions stop fixed<N>
+# Arrêtez-la dès la fin des mesures :  gcloud app versions stop thr<N>
 set -euo pipefail
-N="${1:?usage: ./deploy_fixed.sh N [arguments gcloud]}"
+N="${1:?usage: ./deploy_threads.sh N [arguments gcloud]}"
 shift
 cd "$(dirname "$0")"
 YAML="app-thr-${N}.yaml"
