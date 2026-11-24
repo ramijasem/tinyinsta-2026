@@ -33,8 +33,8 @@
 - Résultat final : 27/27 jeux exacts (U users, U*P posts)
 
 ## Analyse des incidents (pour la section Validité)
-- Un seul facteur changé (gRPC -> REST) : seed bloqué > 50 min -> 28.8 s sans erreur.
-  Cause = transport gRPC depuis Cloud Shell (timeout client de 60 s sur commit/run_query), pas la capacité d'écriture de Datastore.
+- gRPC -> REST (08/11) : seed bloqué > 50 min -> 28.8 s sans erreur. Les essais gRPC dataient des jours précédents : le temps écoulé est un 2e facteur, le test n'isole pas une seule cause.
+  Deux causes probables qui se combinent : hotspot côté Datastore (range partitioning ; clés User écrites dans l'ordre et champ content croissant = insertions monotones sur un jeu neuf) et client gRPC qui coupe à 60 s puis réessaie (charge en plus, risque de doublons). En REST, pas de coupure côté client.
 - Risque de doublons : les posts ont des clés incomplètes (mutation insert, commit non transactionnel).
   Un commit expiré côté client peut avoir été appliqué côté serveur ; le retry réécrit alors les posts. En REST, pas de timeout client par défaut.
 - Mode PESSIMISTIC : les limites legacy (25 entity groups, 1 écriture/s par groupe) ne s'appliquent pas.

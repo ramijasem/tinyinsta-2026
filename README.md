@@ -6,7 +6,7 @@ Rapport du projet Données massives et Cloud. Sujet : [SUJET.md](SUJET.md). READ
 - Projet GCP : `tinyinsta-2026-511514`, région App Engine : `europe-west`
 - Application : https://tinyinsta-2026-511514.ew.r.appspot.com (version par défaut `20261106t175435`, F1, autoscaling ≤ 10)
 - Base : Firestore en mode Datastore, `concurrencyMode = PESSIMISTIC`, index `Post(author ASC, created DESC)`
-- Jeux de données : générés du 06/11 au 08/11/2026 avec `bench/seed_exact.py`, vérifiés par `bench/check_datasets.py` (27/27 exacts)
+- Jeux de données : générés du 06/11 au 08/11/2026 avec `bench/seed_exact.py`, vérifiés par `bench/check_datasets.py` (27/27 exacts). Le peuplement des gros jeux (`u10000`, `p1000`) a d'abord échoué (`DeadlineExceeded`, lots abandonnés), pour deux raisons qui se combinent. Côté Datastore, un *hotspot* de *range partitioning* : le script écrit les utilisateurs dans l'ordre de leurs clés (`u00000`, `u00001`…) et des posts au champ `content` croissant (« Post 0 », « Post 1 »…). Sur un jeu neuf, ces insertions monotones tombent sur la même plage, le cas que le cours signale (*« high with monotonic inserts »*) ; le script mélange d'ailleurs déjà les auteurs pour l'éviter sur l'index `author`. Côté client, gRPC coupe un appel au bout de 60 s et le script réessaie, ce qui ajoute de la charge et peut dupliquer des posts. Avec `--rest` (pas de délai côté client), les deux jeux sont passés en 29 s et 68 s le 08/11, mais Datastore avait aussi eu le temps de redécouper ses plages entre-temps : je ne peux pas séparer les deux causes. Les jeux partiels ont été purgés puis régénérés (`NOTES.md`).
 - Client (seed et charge) : Cloud Shell — Python 3.12, locust 2.46.7, google-cloud-datastore 2.19.0
 - Versions de mesure (instances B1, manual scaling, `--no-promote`) : `fixed1` (13/11, Parties 1 et 2), `fixed2` et `fixed4` (13/11, Partie 2), `thr1` = `fixed1` + `gunicorn --threads 8` (14/11, Partie 3, deux runs à 17:20 et 18:09 UTC)
 - **Reproduire** : un `Makefile` sert de point d'entrée unique. `make` régénère toutes les figures et leurs CSV à partir de `raw/` (gratuit, nécessite `matplotlib`) ; `make check` vérifie les 27 jeux ; `make seed CONFIRM=oui` purge puis repeuple les 27 jeux (`seed_exact.py --rest`) ; `make part1`, `make part2` et `make part3` relancent les mesures (chaque version est arrêtée automatiquement à la fin) ; `make stop` arrête toutes les versions de mesure. Journal détaillé des incidents : [`NOTES.md`](NOTES.md).
@@ -27,7 +27,7 @@ Avant de mesurer, je regarde ce que fait vraiment une timeline dans `get_timelin
 Le code prévoit aussi une version GQL (L52-56), mais elle ne tourne jamais : `datastore.Client` n'a pas de méthode `gql` (vérifié). Et il y a un piège : si la requête `IN` échoue, l'erreur est ignorée (L65) et le code fait une boucle d'une requête par auteur (L66-72). Or Datastore accepte au plus 30 valeurs dans un `IN`. J'ai testé : 30 passe, 31 renvoie `400 IN supports up to 30 values`. Dès F = 30, l'application change donc de chemin sans rien dire, et répond toujours 200.
 
 **U et P : je m'attends à un temps constant.**
-Datastore range ses données par plages de clés triées (*range partitioning*). Dans l'index, les posts d'un même auteur sont côte à côte, du plus récent au plus ancien. Pour avoir ses 20 derniers posts, il suffit d'aller au début de sa plage et de lire 20 entrées : c'est la *range query* avec `ORDER BY … LIMIT` que le cours décrit comme naturelle en range partitioning. Le lookup de L43 est un accès par clé exacte (*point lookup*). Ni le nombre total d'utilisateurs (U), ni les posts plus anciens (P) n'entrent en jeu. C'est la différence avec le *Seq Scan* + *Sort* de PostgreSQL vu en cours : ici, on fait toujours l'équivalent d'un *Index Scan*.
+Datastore range ses données par plages de clés triées (*range partitioning*). Dans l'index, les posts d'un même auteur sont côte à côte, du plus récent au plus ancien. Pour avoir ses 20 derniers posts, il suffit d'aller au début de sa plage et de lire 20 entrées : c'est la *range query* avec `ORDER BY … LIMIT` que le cours décrit comme naturelle en range partitioning. Le lookup de L43 est un accès par clé exacte (*point lookup*). Ni le nombre total d'utilisateurs (U), ni les posts plus anciens (P) n'entrent en jeu.
 
 **F : je m'attends à ce que ça ne passe pas à l'échelle.**
 Chaque auteur suivi est une plage différente, potentiellement sur un *shard* différent. La requête devient un *scatter/gather* sur F + 1 plages, suivi d'une fusion des résultats.
@@ -73,7 +73,7 @@ Valeurs tracées : [`figures/fig1a.csv`](figures/fig1a.csv), [`figures/fig1b.csv
 **F : hypothèse confirmée, avec les trois régimes prévus.**
 - F = 5 → 25 (chemin `IN`) : 28,1 → 32,8 ms, une légère hausse.
 - F = 25 → 30 : 32,8 → 604 ms, un saut de ×18. C'est la bascule silencieuse sur la boucle quand le `IN` dépasse 30 valeurs.
-- F = 30 → 100 : 604 → 1 828 ms, une croissance linéaire. En divisant par le nombre de requêtes, on trouve 604 / 31 ≈ 19,5 ms et 1 828 / 101 ≈ 18,1 ms : chaque requête de la boucle coûte un aller-retour d'environ 18 ms vers Datastore. Le temps d'une timeline suit donc à peu près (F + 1) × 18 ms.
+- F = 30 → 100 : 604 → 1 828 ms, une croissance linéaire : chaque compte suivi en plus ajoute un aller-retour vers Datastore, d'environ 18 ms.
 
 Ce n'est pas Datastore qui ne passe pas à l'échelle ici, mais la façon dont l'application l'interroge : une requête par auteur, en série.
 
@@ -90,6 +90,8 @@ Ce n'est pas Datastore qui ne passe pas à l'échelle ici, mais la façon dont l
 
 Le coût ne dépend ni de U ni de P, mais il est multiplié par 30 dès F = 30, puis il croît linéairement. Le problème de F coûte du temps, et aussi de l'argent. Avec le *back-of-the-envelope* « Instagram » du cours (50 milliards d'éléments de feed vus par jour, soit ~2,5 milliards de timelines de 20 posts), cela ferait ≈ 31 000 USD de lectures par jour avec F ≤ 25, et ≈ 3 millions USD par jour si chacun suivait 100 comptes.
 
+**Ce que ça dit, avec les mots du cours.** En cours, on s'était posé la question pour PostgreSQL : *« what happens if data size grows? »*. Sans index, le plan faisait un *Seq Scan* puis un tri, et son coût suivait la taille de la table. Datastore ne laisse pas le choix : sans index, la requête est refusée. On est donc toujours dans le cas de l'*Index Scan*, et c'est pour ça que U et P ne comptent pas. F correspond au *« my query may be cross-shard »* du cours : plus on suit de comptes, plus la requête touche de plages différentes. Le langage NoSQL limite justement ce genre de requête (le `IN` plafonné à 30), et l'application, au lieu de s'adapter, retombe sur une requête par auteur.
+
 **Limites.** Les runs à F ≥ 30 ne contiennent que 30 à 93 requêtes en 60 s (une requête dure jusqu'à 2 s) : leurs médianes sont moins précises. Chaque jeu a été mesuré sur un seul utilisateur (`<préfixe>_u00000`). Tous les utilisateurs d'un jeu ont exactement F followees et P posts, ce qui les rend équivalents pour la requête, mais un effet de cache côté Datastore n'est pas exclu.
 
 ### Partie 2 — Capacité
@@ -99,9 +101,9 @@ Avant de mesurer, je regarde comment l'application est lancée, puisque c'est l'
 
 **Ce que fait une instance.** `app.yaml` (L2) et `deploy_fixed.sh` lancent `gunicorn -b :$PORT main:app`, sans aucune option. Par défaut, gunicorn démarre **un seul worker synchrone** : une instance traite **une seule requête à la fois**. Pendant qu'une timeline attend Datastore, le worker est bloqué, même si le CPU ne fait rien. Les autres requêtes attendent dans une file.
 
-**Capacité d'une instance.** En Partie 1, une timeline de `base` occupe le serveur environ 31 ms, auxquels s'ajoutent Flask et le JSON. J'estime donc la capacité à 1 / 0,033 s, soit **environ 30 timelines par seconde par instance**. Avec `-u 1`, j'obtenais 19,7 requêtes/s (1 180 en 60 s), parce que le client attend aussi les ~14 ms de réseau entre deux requêtes.
+**Capacité d'une instance.** En Partie 1, une timeline de `base` occupe le serveur environ 31 ms, auxquels s'ajoutent Flask et le JSON. Si chaque requête occupe l'instance ~33 ms, elle ne peut en servir qu'**environ 30 par seconde**. Avec `-u 1`, j'obtenais 19,7 requêtes/s (1 180 en 60 s), parce que le client attend aussi les ~14 ms de réseau entre deux requêtes.
 
-**Débit selon C (Fig. 2a).** En boucle fermée, chaque utilisateur Locust renvoie une requête dès qu'il a la réponse. Tant que les instances ne sont pas pleines, le débit monte avec C (X ≈ C / 45 ms), puis il plafonne à N × 30 req/s :
+**Débit selon C (Fig. 2a).** En boucle fermée, chaque utilisateur Locust renvoie une requête dès qu'il a la réponse. Tant que les instances ne sont pas pleines, le débit monte avec C, puis il plafonne à N × 30 req/s :
 - N = 1 : saturation dès C ≈ 2, plafond ≈ 30 req/s ;
 - N = 2 : saturation vers C ≈ 4, plafond ≈ 60 req/s ;
 - N = 4 : saturation vers C ≈ 8, plafond ≈ 120 req/s.
@@ -110,7 +112,7 @@ Avant de mesurer, je regarde comment l'application est lancée, puisque c'est l'
 
 **De 1 à 4 instances (scale-out).** Les timelines sont indépendantes : pas d'écriture, pas de verrou, pas d'état partagé, à part Datastore qui joue le rôle de mémoire commune entre les instances. Au sens de la loi d'Amdahl, la part séquentielle est quasi nulle : j'attends un débit maximal **multiplié par environ 4**. Ce qui pourrait l'empêcher : une répartition inégale du load balancer entre les instances, ou le client Locust lui-même (le sujet suppose qu'il n'est pas un goulot). Datastore ne devrait pas saturer : 120 timelines/s font environ 2 500 lectures/s, réparties sur 1 000 utilisateurs différents, donc sans *hotspot*.
 
-**En résumé :** la capacité d'une instance est limitée par son unique worker, pas par Datastore ni par le CPU. Ajouter des instances devrait multiplier le débit à peu près par N. On mesure ici la **scalabilité** sans l'**élasticité** (pas d'autoscaling), et le cours le rappelle : les deux ne sont pas la même chose.
+**En résumé :** la capacité d'une instance est limitée par son unique worker, pas par Datastore ni par le CPU. Ajouter des instances devrait multiplier le débit à peu près par N.
 
 #### Protocole
 - Versions `fixed1`, `fixed2` et `fixed4` (instances B1 en manual scaling), mesurées l'une après l'autre avec `bench/run_part2.sh N`. Pour chaque N, le script supprime l'ancienne version, la redéploie, attend qu'elle réponde, fait une chauffe de 30 s à C = 16 (pour vérifier que les N instances servent), mesure C ∈ {1, 2, 4, 8, 16, 32, 64} dans un ordre mélangé (graine fixe, `order.txt`), refait le premier C (8) à la fin pour détecter une dérive, puis arrête la version.
@@ -139,9 +141,11 @@ Valeurs tracées : [`figures/fig2a.csv`](figures/fig2a.csv), [`figures/fig2b.csv
 - le **client** n'est pas saturé : Locust n'a émis aucune alerte CPU ;
 - les **instances** sont pleines : elles passent 76 à 92 % de leur temps dans `get_timeline`.
 
-Ce qui change, c'est la durée de `get_timeline`. Son temps moyen (occupation / débit) passe d'environ 27 ms avec une instance à 40-47 ms avec 2 ou 4 instances, alors que la médiane bouge peu (25 → 29-34 ms) : quelques appels deviennent beaucoup plus lents. Avec 7 ms de surcoût par requête, cela donne 1 / (43 + 7 ms) ≈ 20 req/s par instance, ce qu'on mesure. Plus on ajoute d'instances, plus elles interrogent Datastore en même temps, et plus l'accès aux données ralentit : comme le dit le cours, *« it scales if the data access scales »*. C'est aussi l'idée de la loi d'Amdahl : la partie partagée limite le gain. Je ne peux pas séparer ici l'effet de Datastore et celui du CPU partagé des instances B1, car les deux sont dans `get_timeline`.
+Ce qui change, c'est la durée de `get_timeline` : en moyenne ~27 ms avec une instance, ~43 ms avec 2 ou 4 instances. Chaque instance sert donc moins de requêtes quand les autres tournent en même temps. Je ne peux pas séparer ici l'effet de Datastore de celui du CPU partagé des instances B1.
 
-**En résumé :** une instance sert environ 28 timelines/s, limitée par son unique worker. Ajouter des instances augmente le débit, mais moins que proportionnellement (×2,9 pour ×4), parce que le temps d'accès aux données augmente avec la charge totale.
+**Ce que ça dit, avec les mots du cours.** Ajouter des instances, c'est du *scale-out*. Le cours prévient que l'élasticité (avoir plus de machines) ne garantit pas la scalabilité : il faut que le travail soit vraiment parallèle. Ici, les instances ne partagent rien entre elles, sauf Datastore, qui joue le rôle de la mémoire partagée du « méta-ordinateur » vu en cours. Si c'est Datastore qui ralentit quand la charge monte, on retrouve la loi d'Amdahl et le *« it scales if the data access scales »* du cours. On mesure d'ailleurs ici la scalabilité sans l'élasticité, puisqu'il n'y a pas d'autoscaling.
+
+**En résumé :** une instance sert environ 28 timelines/s, limitée par son unique worker. Ajouter des instances augmente le débit, mais moins que proportionnellement (×2,9 pour ×4), parce que `get_timeline` ralentit quand la charge totale augmente.
 
 ### Partie 3 — Corriger et re-mesurer
 #### Hypothèse
@@ -150,11 +154,11 @@ Ce qui change, c'est la durée de `get_timeline`. Son temps moyen (occupation / 
 
 **La correction.** Je lance gunicorn avec `--threads 8`. En Partie 2, on ajoutait des machines (*scale-out*) ; ici, on cherche à mieux utiliser une seule machine, une logique proche du *scale-up*. Le code de l'application ne change pas, seule la ligne `entrypoint` change. Elle est déployée dans une version à part, `thr1`, avec `--no-promote` (`deploy_threads.sh`, qui est une copie de `deploy_fixed.sh` où seules la ligne `entrypoint` et le nom de version diffèrent).
 
-**Pourquoi ça devrait marcher.** Une timeline passe l'essentiel de son temps à attendre les réponses de Datastore. En Python, un thread qui attend le réseau libère le GIL : pendant qu'un thread attend, un autre peut avancer sur sa propre requête. Avec 8 threads, une instance peut avoir jusqu'à 8 timelines en cours en même temps.
+**Pourquoi ça devrait marcher.** Une timeline passe l'essentiel de son temps à attendre les réponses de Datastore. Pendant qu'un thread attend Datastore, un autre peut traiter une autre requête. Avec 8 threads, une instance peut avoir jusqu'à 8 timelines en cours en même temps.
 
 **Ce que j'attends (Fig. 3, N = 1, mêmes C que la Partie 2).**
 - C = 1 : aucune différence, puisqu'il n'y a qu'une requête à la fois de toute façon.
-- C ≥ 2 : un débit qui dépasse les 28 req/s. Le nouveau plafond devrait venir du CPU de l'instance B1 : la partie calcul (Flask, JSON, décodage des entités) ne se parallélise pas à cause du GIL. J'attends un plafond 2 à 3 fois plus haut (60 à 80 req/s), atteint vers C = 8.
+- C ≥ 2 : un débit qui dépasse les 28 req/s. Le nouveau plafond devrait venir du CPU de l'instance B1 : la partie calcul (Flask, JSON, décodage des entités) se parallélise mal en Python. J'attends un plafond 2 à 3 fois plus haut (60 à 80 req/s), atteint vers C = 8.
 - Latence : nettement plus basse à C égal. Au-delà de la saturation, la file d'attente revient, mais plus tard. La loi de Little doit rester vraie.
 
 **Ce que la correction devrait coûter.** En complexité, presque rien : une option. En argent, une instance B1 coûte le même prix, mais elle sert plus de requêtes, donc il faut moins d'instances pour une même charge. Les lectures Datastore par timeline ne changent pas. Côté cohérence des données, aucun risque : une timeline ne fait que lire. Le seul point à vérifier, c'est que le code supporte plusieurs threads : le client Datastore global (`main.py` L10) est partagé, et `get_timeline` ne modifie aucune variable globale.
@@ -191,9 +195,7 @@ La documentation d'App Engine ne dit pas comment le planificateur choisit le nom
 - *Complexité* : quasi nulle, une option dans une ligne de configuration.
 - *Argent* : une instance B1 coûte le même prix. Tant que les threads servent, elle traite 6 fois plus de timelines, donc il faudrait 6 fois moins d'instances pour la même charge. Le nombre de lectures Datastore par timeline ne change pas (21).
 - *Cohérence des données* : aucun risque, une timeline ne fait que lire, et `get_timeline` ne modifie aucune variable globale. Le client Datastore (L10) est partagé par les threads.
-- *Limite* : le gain dépend d'un choix de la plateforme qu'on ne contrôle pas en manual scaling. Pour en profiter durablement, il faudrait sans doute passer en automatic scaling avec `max_concurrent_requests`, mais ce n'est plus le protocole à instances fixes du sujet, donc je ne l'ai pas mesuré.
-
-**Variabilité.** Le run 2 est globalement 25 % plus lent que le run 1 (plafond 21 req/s contre 28, latence à C = 1 de 49 ms contre 38 ms), mais il montre la même bascule au même moment. Les comparaisons de ce rapport se font donc entre runs proches dans le temps.
+- *Limite* : le gain dépend de la plateforme, qu'on ne contrôle pas en manual scaling. L'automatic scaling permettrait peut-être d'en profiter, mais ce n'est plus le protocole à instances fixes du sujet.
 
 **Piste non mesurée pour l'autre goulot (Partie 1).** Découper la liste des auteurs en paquets de 30 et lancer une requête `IN` par paquet ramènerait une timeline à F = 100 à 4 requêtes (au lieu de 101) et à environ 81 lectures (au lieu de 2 021). Une piste plus radicale, vue en cours, est de **matérialiser les timelines** (table `feeds_home`, *fan-out on write*) : lire une timeline devient une seule *range query*, quel que soit F. Le prix, c'est qu'un post doit être écrit dans la timeline de chacun de ses followers (transaction multi-shard coûteuse, ou mise à jour asynchrone par Pub/Sub), et la cohérence devient **éventuelle** : un post peut apparaître avec un peu de retard. C'est le compromis ACID / BASE du cours.
 
@@ -204,7 +206,7 @@ La documentation d'App Engine ne dit pas comment le planificateur choisit le nom
 | Utilisateurs (U) | Oui | Testé jusqu'à U = 10 000 (×100) : 31 → 34 ms | Lookup par clé + lecture de la plage d'index des seuls F + 1 auteurs | Fig. 1a |
 | Posts par utilisateur (P) | Oui | Testé jusqu'à P = 1 000 (×100) : 31 → 34 ms | Index trié par date + `LIMIT 20` : seuls les 20 premiers posts de chaque plage sont lus | Fig. 1a |
 | Followees (F) | Non | Jusqu'à F = 25 (~30 ms). Saut ×18 à F = 30, puis ≈ (F + 1) × 18 ms (1,8 s à F = 100) | `IN` limité à 30 valeurs → boucle de F + 1 requêtes séquentielles, 20 × (F + 1) lectures | Fig. 1b |
-| Instances (N) | Partiellement | ×1,6 avec 2 instances, ×2,9 avec 4 (≈ 28 → 81 req/s) | 1 worker gunicorn synchrone par instance (≈ 28 req/s chacune), puis accès aux données qui ralentit avec la charge totale | Fig. 2a, 2b |
+| Instances (N) | Partiellement | ×1,6 avec 2 instances, ×2,9 avec 4 (≈ 28 → 81 req/s) | 1 worker gunicorn synchrone par instance (≈ 28 req/s chacune), puis `get_timeline` qui ralentit avec la charge totale | Fig. 2a, 2b |
 
 ## 4. Validité
 1. Instances ayant réellement servi chaque mesure : Partie 1 : 1 instance distincte (`X-Instance`) pour chacun des 27 runs, comme attendu avec `fixed1`. Partie 2 : exactement N instances distinctes (1, 2, 4) à chaque point, vérifié pendant la chauffe et dans `fig2a.csv`. Partie 3 : une seule instance, avec le même identifiant tout au long de chaque run, et aucun redémarrage dans ses logs.
@@ -233,8 +235,8 @@ Source : rapport de facturation GCP du projet `tinyinsta-2026-511514`, du 13/10 
 
 **Écarts et enseignements.**
 - Le prix effectif d'une lecture est d'environ **0,06 USD pour 100 000** (1,96 USD pour 3,37 millions de lectures, après le quota gratuit), soit le double du chiffre que j'avais d'abord retenu. J'ai corrigé le coût de 1 million de timelines en Partie 1 en conséquence.
-- Les instances n'ont rien coûté : 4,52 h de B1 et 1,32 h de F1 restent sous les quotas gratuits quotidiens (9 h de backend et 28 h de frontend par jour). Les 4,52 h dépassent le temps de mesure parce qu'elles incluent les déploiements, les attentes de démarrage, les chauffes et le déploiement resté bloqué.
-- Tout le coût vient de **Datastore** : écritures 37 %, lectures 61 %, suppressions 2 %. Les seeds ratés (problème gRPC, voir `NOTES.md`) représentent à eux seuls la moitié des écritures et toutes les suppressions, soit environ 0,7 USD, plus de 20 % de la campagne.
+- Les instances n'ont rien coûté : 4,52 h de B1 et 1,32 h de F1 restent sous les quotas gratuits quotidiens (9 h de backend et 28 h de frontend par jour). Elles incluent aussi les déploiements et les chauffes.
+- Tout le coût vient de **Datastore** : écritures 37 %, lectures 61 %, suppressions 2 %. Les seeds ratés (voir le Montage) représentent à eux seuls la moitié des écritures et toutes les suppressions, soit environ 0,7 USD, plus de 20 % de la campagne.
 - Les runs F ≥ 30 de la Partie 1 ont lu ≈ 0,88 million d'entités en 15 minutes : le problème de F se voit directement sur la facture.
 
 **Au total :** 3,23 USD de coût brut, entièrement couverts par les crédits Education. C'est dans la fourchette annoncée par le sujet (moins de 1 USD pour les données, 2 à 5 USD pour les mesures), et loin de l'alerte budgétaire à 20 USD.
