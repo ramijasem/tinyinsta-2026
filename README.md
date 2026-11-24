@@ -68,7 +68,7 @@ Valeurs tracées : [`figures/fig1a.csv`](figures/fig1a.csv), [`figures/fig1b.csv
 
 **Les mesures sont fiables.** Les 27 runs ont été servis par une seule instance, sans aucun échec (100 % de réponses 200). `base` donne 31,7 ms au début et 31,4 ms à la fin, à 27 minutes d'écart : l'ordre des runs n'a pas biaisé les résultats.
 
-**U et P : hypothèse confirmée.** Avec 100 fois plus d'utilisateurs (U = 100 → 10 000), le temps serveur passe de 31,4 à 34,3 ms. Avec 100 fois plus de posts par utilisateur (P = 10 → 1 000), il passe de 30,9 à 34,0 ms. Ces écarts de 3 ms restent dans les barres d'erreur : le temps est constant. L'index `(author, created DESC)` fait que la requête ne lit que le début de la plage de chaque auteur, quelle que soit la taille de la base.
+**U et P : hypothèse confirmée.** Avec 100 fois plus d'utilisateurs (U = 100 → 10 000), le temps serveur passe de 31,4 à 34,3 ms. Avec 100 fois plus de posts par utilisateur (P = 10 → 1 000), il passe de 30,9 à 34,0 ms. Cela fait +10 % pour des données ×100 : le temps est quasi constant. La hausse va dans le même sens pour U et pour P, donc ce n'est sans doute pas que du bruit (les quartiles tracés ne sont pas un intervalle de confiance), mais elle reste minime face à la taille des données. L'index `(author, created DESC)` fait que la requête ne lit que le début de la plage de chaque auteur, quelle que soit la taille de la base.
 
 **F : hypothèse confirmée, avec les trois régimes prévus.**
 - F = 5 → 25 (chemin `IN`) : 28,1 → 32,8 ms, une légère hausse.
@@ -79,7 +79,7 @@ Ce n'est pas Datastore qui ne passe pas à l'échelle ici, mais la façon dont l
 
 **Part du réseau.** L'écart entre latence client et temps serveur reste autour de 14 ms (médiane sur les 20 jeux F : 14,4 ms ; 13,8 ms pour `base`, 15,2 ms pour `f100`). Les quelques valeurs plus hautes (24 à 27 ms à F = 65, 75 et 80) viennent de runs de 35 à 44 requêtes seulement, où la médiane est moins stable. Il pèse environ 30 % de la latence pour `base`, mais moins de 1 % pour F = 100. Ces 14 ms ne sont pas que du réseau : ils incluent aussi la sérialisation JSON, Flask/gunicorn et le load balancer de Google.
 
-**Lectures Datastore et coût de 1 million de timelines.** Une timeline lit 1 entité `User` (lookup), puis les posts renvoyés : 20 avec le `IN`, et 20 × (F + 1) avec la boucle, puisque chaque auteur renvoie ses 20 posts. Les entrées d'index ne sont pas facturées, car la requête n'a qu'une propriété de plage. Au tarif de [Firestore en mode Datastore](https://cloud.google.com/datastore/docs/pricing), soit ≈ 0,06 USD pour 100 000 lectures d'entités au-delà de 50 000 lectures gratuites par jour (prix effectif déduit de ma facture : 1,96 USD pour 3,37 millions de lectures, voir section 5) :
+**Lectures Datastore et coût de 1 million de timelines.** Une timeline lit 1 entité `User` (lookup), puis les posts renvoyés : 20 avec le `IN`, et 20 × (F + 1) avec la boucle, puisque chaque auteur renvoie ses 20 posts. Je compte une lecture par entité renvoyée, un modèle que la facture confirme (section 5). Au tarif de [Firestore en mode Datastore](https://cloud.google.com/datastore/docs/pricing), soit ≈ 0,06 USD pour 100 000 lectures d'entités au-delà de 50 000 lectures gratuites par jour (prix effectif déduit de ma facture : 1,96 USD pour 3,37 millions de lectures, voir section 5) :
 
 | Cas | Lectures par timeline | Coût de 1 million de timelines |
 |---|---|---|
@@ -115,7 +115,7 @@ Avant de mesurer, je regarde comment l'application est lancée, puisque c'est l'
 **En résumé :** la capacité d'une instance est limitée par son unique worker, pas par Datastore ni par le CPU. Ajouter des instances devrait multiplier le débit à peu près par N.
 
 #### Protocole
-- Versions `fixed1`, `fixed2` et `fixed4` (instances B1 en manual scaling), mesurées l'une après l'autre avec `bench/run_part2.sh N`. Pour chaque N, le script supprime l'ancienne version, la redéploie, attend qu'elle réponde, fait une chauffe de 30 s à C = 16 (pour vérifier que les N instances servent), mesure C ∈ {1, 2, 4, 8, 16, 32, 64} dans un ordre mélangé (graine fixe, `order.txt`), refait le premier C (8) à la fin pour détecter une dérive, puis arrête la version.
+- Versions `fixed1`, `fixed2` et `fixed4` (instances B1 en manual scaling), mesurées l'une après l'autre avec `bench/run_part2.sh N`. Pour chaque N, le script supprime l'ancienne version, la redéploie, attend qu'elle réponde, fait une chauffe de 30 s à C = 16 (pour vérifier que les N instances servent), mesure C ∈ {1, 2, 4, 8, 16, 32, 64} dans un ordre mélangé (graine fixe, donc le même ordre 8, 4, 1, 32, 16, 2, 64 pour tous les N, `order.txt`), refait le premier C (8) à la fin pour détecter une dérive, puis arrête la version.
 - Jeu `base`, Locust en boucle fermée, 60 s par point.
 - Débit : réponses 200 dont la requête part entre 5 et 55 s du run, divisées par 50 s. Latences médiane et moyenne sur la même fenêtre. Nombre d'instances et part de la plus chargée lus dans `X-Instance`.
 - Mesures du 13/11/2026, de 15:50 à 16:18 UTC, depuis Cloud Shell. Figures : `python bench/make_figures.py`.
@@ -126,7 +126,7 @@ Avant de mesurer, je regarde comment l'application est lancée, puisque c'est l'
 
 ![Fig. 2b](figures/fig2b.png)
 
-Valeurs tracées : [`figures/fig2a.csv`](figures/fig2a.csv), [`figures/fig2b.csv`](figures/fig2b.csv).
+Valeurs tracées : [`figures/fig2a.csv`](figures/fig2a.csv), [`figures/fig2b.csv`](figures/fig2b.csv) (les deux figures tracent les mêmes points, d'où deux CSV identiques).
 
 #### Interprétation
 
@@ -136,16 +136,16 @@ Valeurs tracées : [`figures/fig2a.csv`](figures/fig2a.csv), [`figures/fig2b.csv
 
 **Loi de Little.** Avec la latence **moyenne**, elle est vérifiée à 2 % près dans presque tous les cas, y compris bien au-delà de la saturation (N = 1, C = 64 : 2 276 ms mesurés, contre 64 / 28,0 = 2 287 ms prédits). Les écarts de 5 à 13 % à C = 16 et C = 32 tombent sur les runs qui ont eu des échecs DNS : un utilisateur Locust bloqué 10 à 20 s sur une erreur ne compte ni dans le débit ni dans la latence, donc il y a en réalité moins de C utilisateurs actifs. La **médiane** peut s'écarter beaucoup plus (N = 2, C = 64 : médiane 791 ms, moyenne 1 511 ms), parce que la loi porte sur la moyenne.
 
-**De 1 à 4 instances : le scale-out n'est pas linéaire.** Le débit maximal passe de ~28 à ~44 req/s avec 2 instances (×1,6), et à ~81 req/s avec 4 (×2,9), au lieu de ×2 et ×4. J'ai vérifié trois explications :
+**De 1 à 4 instances : le scale-out n'est pas linéaire.** Le débit maximal passe de ~28 à ~44 req/s avec 2 instances (×1,6), et à ~81 req/s avec 4 (×2,9), au lieu de ×2 et ×4. Avec 4 instances, le débit monte encore à la fin (66, 76 puis 81 req/s à C = 16, 32 et 64) : N = 4 n'est pas saturé à C = 64, et ×2,9 est donc un minimum. J'ai vérifié trois explications :
 - le **load balancer** répartit bien : l'instance la plus chargée sert 50 à 56 % des requêtes avec N = 2, et 25 à 31 % avec N = 4 ;
 - le **client** n'est pas saturé : Locust n'a émis aucune alerte CPU ;
 - les **instances** sont pleines : elles passent 76 à 92 % de leur temps dans `get_timeline`.
 
-Ce qui change, c'est la durée de `get_timeline` : en moyenne ~27 ms avec une instance, ~43 ms avec 2 ou 4 instances. Chaque instance sert donc moins de requêtes quand les autres tournent en même temps. Je ne peux pas séparer ici l'effet de Datastore de celui du CPU partagé des instances B1.
+Ce qui change, c'est la durée de `get_timeline`, et ce n'est pas d'abord un effet de la charge. À C = 1, avec une seule requête en cours dans tout le système, son temps médian vaut déjà 23,6 ms avec 1 instance, 29,4 ms avec 2 et 27,0 ms avec 4 (débit à C = 1 : 24,5, 20,6 et 22,0 req/s). Les instances de `fixed2` et `fixed4` sont donc plus lentes dès le départ, à cause des instances elles-mêmes ou du moment du run. La charge ajoute ensuite des requêtes lentes : avec 4 instances, la moyenne passe de 31,6 ms à C = 1 à 40,3 ms à C = 64, alors que la médiane bouge peu. Je ne peux pas séparer ici l'effet de Datastore de celui du CPU partagé des instances B1.
 
-**Ce que ça dit, avec les mots du cours.** Ajouter des instances, c'est du *scale-out*. Le cours prévient que l'élasticité (avoir plus de machines) ne garantit pas la scalabilité : il faut que le travail soit vraiment parallèle. Ici, les instances ne partagent rien entre elles, sauf Datastore, qui joue le rôle de la mémoire partagée du « méta-ordinateur » vu en cours. Si c'est Datastore qui ralentit quand la charge monte, on retrouve la loi d'Amdahl et le *« it scales if the data access scales »* du cours. On mesure d'ailleurs ici la scalabilité sans l'élasticité, puisqu'il n'y a pas d'autoscaling.
+**Ce que ça dit, avec les mots du cours.** Ajouter des instances, c'est du *scale-out*. Le cours prévient que l'élasticité (avoir plus de machines) ne garantit pas la scalabilité : il faut que le travail soit vraiment parallèle. Ici, les instances ne partagent rien entre elles, sauf Datastore, qui joue le rôle de la mémoire partagée du « méta-ordinateur » vu en cours. Mes mesures ne permettent pas de tout mettre sur le dos de cette partie commune, puisqu'une partie du ralentissement existe déjà à C = 1. Seules les requêtes lentes qui apparaissent avec la charge vont dans le sens de la loi d'Amdahl et du *« it scales if the data access scales »* du cours. On mesure d'ailleurs ici la scalabilité sans l'élasticité, puisqu'il n'y a pas d'autoscaling.
 
-**En résumé :** une instance sert environ 28 timelines/s, limitée par son unique worker. Ajouter des instances augmente le débit, mais moins que proportionnellement (×2,9 pour ×4), parce que `get_timeline` ralentit quand la charge totale augmente.
+**En résumé :** une instance sert environ 28 timelines/s, limitée par son unique worker. Ajouter des instances augmente le débit, mais moins que proportionnellement (×2,9 pour ×4), parce que `get_timeline` est plus lent sur les versions à 2 et 4 instances, même sans charge. Avec 4 instances, le plafond n'est pas encore atteint à C = 64.
 
 ### Partie 3 — Corriger et re-mesurer
 #### Hypothèse
@@ -166,7 +166,7 @@ Ce qui change, c'est la durée de `get_timeline` : en moyenne ~27 ms avec une in
 #### Protocole
 - Version `thr1` = `fixed1` + `--threads 8` dans l'`entrypoint` de gunicorn, déployée avec `--no-promote` par `deploy_threads.sh`.
 - Protocole **strictement identique** à la Partie 2 pour N = 1 : `bench/run_part3.sh` est généré à partir de `bench/run_part2.sh`, et seuls le nom de version, le script de déploiement et le dossier de sortie changent (`diff bench/run_part2.sh bench/run_part3.sh`).
-- Deux runs identiques le 14/11/2026 (17:20 et 18:09 UTC), pour vérifier que le résultat se reproduit : `raw/part3/n1_run1` et `raw/part3/n1_run2`.
+- Deux runs identiques le 14/11/2026 (17:20 et 18:09 UTC), pour vérifier que le résultat se reproduit : `raw/part3/n1_run1` et `raw/part3/n1_run2`. Les deux runs suivent le même ordre de C que la Partie 2.
 - En plus des journaux Locust, j'ai récupéré les logs de requêtes d'App Engine du run 1 (`request_log_appengine.csv`). Ils donnent, pour chaque requête, son `pendingTime` : le temps passé dans la file d'attente d'App Engine avant d'être envoyée à l'instance.
 
 #### Figures
@@ -176,7 +176,9 @@ Valeurs tracées : [`figures/fig3.csv`](figures/fig3.csv) (a), [`figures/fig3_te
 
 #### Interprétation
 
-**Un gain réel, mais qui ne dure que 50 secondes.** Au début de chaque run, les threads font exactement ce qu'on attendait, et même mieux : 160 à 180 timelines/s sur une seule instance, au lieu de 28, soit **×6**. L'instance traite alors 5 à 7 requêtes en même temps (le temps cumulé dans `get_timeline` atteint 500 à 760 % de la durée écoulée). Puis, vers **t ≈ 50 s**, dans les deux runs, le débit retombe au niveau de `fixed1` et n'en bouge plus (Fig. 3b). C'est pour ça qu'en Fig. 3a, `thr1` se confond avec `fixed1`, sauf au point C = 8, mesuré pendant la bascule.
+**Selon le protocole imposé, le gain est nul.** En Fig. 3a, `thr1` se confond avec `fixed1` à tous les C sauf C = 8, et le run 2 est même en dessous. Le gain n'apparaît qu'au tout début de chaque run, et il ne dure qu'environ 50 secondes.
+
+**Un gain réel, mais surtout hors de la fenêtre de mesure.** Au début de chaque run, les threads font exactement ce qu'on attendait, et même mieux : 160 à 180 timelines/s sur une seule instance, au lieu de 28, soit **×6**. Ce pic tombe surtout pendant les 30 s de chauffe à C = 16, qui ne comptent pas dans les mesures, puis pendant les 20 premières secondes de C = 8. L'instance traite alors 5 à 7 requêtes en même temps (le temps cumulé dans `get_timeline` atteint 500 à 760 % de la durée écoulée). Puis, vers **t ≈ 50 s**, dans les deux runs, le débit retombe au niveau de `fixed1` et n'en bouge plus (Fig. 3b). Le point C = 8 de Fig. 3a est mesuré pendant cette bascule.
 
 **L'instance et le code ne sont pas en cause.** C'est la même instance du début à la fin, et ses logs ne montrent ni redémarrage, ni erreur, ni manque de mémoire. Le temps passé dans `get_timeline` reste à ~25 ms avant comme après la bascule : si les threads se gênaient dans le code ou sur Datastore, ce temps augmenterait. La sérialisation se fait donc **avant** que la requête n'arrive dans l'application.
 
@@ -206,12 +208,12 @@ La documentation d'App Engine ne dit pas comment le planificateur choisit le nom
 | Utilisateurs (U) | Oui | Testé jusqu'à U = 10 000 (×100) : 31 → 34 ms | Lookup par clé + lecture de la plage d'index des seuls F + 1 auteurs | Fig. 1a |
 | Posts par utilisateur (P) | Oui | Testé jusqu'à P = 1 000 (×100) : 31 → 34 ms | Index trié par date + `LIMIT 20` : seuls les 20 premiers posts de chaque plage sont lus | Fig. 1a |
 | Followees (F) | Non | Jusqu'à F = 25 (~30 ms). Saut ×18 à F = 30, puis ≈ (F + 1) × 18 ms (1,8 s à F = 100) | `IN` limité à 30 valeurs → boucle de F + 1 requêtes séquentielles, 20 × (F + 1) lectures | Fig. 1b |
-| Instances (N) | Partiellement | ×1,6 avec 2 instances, ×2,9 avec 4 (≈ 28 → 81 req/s) | 1 worker gunicorn synchrone par instance (≈ 28 req/s chacune), puis `get_timeline` qui ralentit avec la charge totale | Fig. 2a, 2b |
+| Instances (N) | Partiellement | ×1,6 avec 2 instances, au moins ×2,9 avec 4 (≈ 28 → 81 req/s, pas saturé à C = 64) | 1 worker gunicorn synchrone par instance (≈ 28 req/s chacune), et `get_timeline` plus lent sur `fixed2` et `fixed4`, même à C = 1 | Fig. 2a, 2b |
 
 ## 4. Validité
 1. Instances ayant réellement servi chaque mesure : Partie 1 : 1 instance distincte (`X-Instance`) pour chacun des 27 runs, comme attendu avec `fixed1`. Partie 2 : exactement N instances distinctes (1, 2, 4) à chaque point, vérifié pendant la chauffe et dans `fig2a.csv`. Partie 3 : une seule instance, avec le même identifiant tout au long de chaque run, et aucun redémarrage dans ses logs.
-2. Indépendance des runs et ordre des mesures : Partie 1 : ordre mélangé (graine 42) ; `base` au début (31,7 ms) et à la fin (31,4 ms), donc pas de dérive. Partie 2 : C mélangé (graine fixe) ; C = 8 refait en fin de série : latence client +7 à +14 %, temps serveur inchangé. Partie 3 : deux runs identiques à 50 minutes d'écart, avec la même bascule vers t ≈ 50 s ; le niveau général varie de ~25 % d'un run à l'autre.
-3. Part de la latence due au réseau : Partie 1 : ≈ 14 ms en médiane entre latence client et temps serveur (`figures/fig1b.csv`).
+2. Indépendance des runs et ordre des mesures : Partie 1 : ordre mélangé (graine 42) ; `base` au début (31,7 ms) et à la fin (31,4 ms), donc pas de dérive. Partie 2 : C mélangé (graine fixe) ; le même ordre pour tous les N ; C = 8 refait en fin de série : latence client +7 à +14 %, temps serveur inchangé. Partie 3 : deux runs identiques à 50 minutes d'écart, avec la même bascule vers t ≈ 50 s ; comme ils suivent le même ordre de C, cela ne dit pas si la bascule dépend du temps écoulé ou de la séquence de C ; le niveau général varie de ~25 % d'un run à l'autre.
+3. Part de la latence due au réseau : Partie 1 : ≈ 14 ms en médiane entre latence client et temps serveur (`figures/fig1b.csv`). Parties 2 et 3, à C = 1 : 13 à 14 ms pour N = 1, 2 et 4, et 13 à 15 ms pour les deux runs de `thr1`. Au-delà de C = 1, la latence client est dominée par l'attente dans la file, plus par le réseau.
 4. Échecs comptés et codes HTTP observés : toute réponse ≠ 200 compte comme un échec. Partie 1 : 0 échec sur les runs mesurés ; des 500 uniquement pendant le démarrage de `fixed1` (`raw/incidents/`), d'où l'attente avant mesure. Partie 2 : moins de 1 % d'échecs, tous côté client (DNS `gaierror`, `ConnectionRefused`), aucune 5xx ; exclus du débit et des latences. Partie 3 : idem, moins de 1 % d'échecs, tous côté client.
 5. Vérification du chemin de code : chemin GQL jamais exécuté ; `IN` limité à 30 valeurs (voir NOTES.md). Partie 3 : `diff` des scripts (seule la ligne `entrypoint` change) ; `pendingTime` des logs App Engine pour localiser l'attente.
 6. Coût de la campagne : au total 3,23 USD brut, 0 USD payé, volumes confirmés par la facture (section 5). Partie 1 : ≈ 1,19 million de lectures d'entités (≈ 0,7 USD avant quota gratuit), dont ≈ 0,88 million pour les seuls runs F ≥ 30 ; ≈ 35 min d'instance B1. Partie 2 : ≈ 63 000 timelines, soit ≈ 1,3 million de lectures (≈ 0,8 USD), et ≈ 1,2 h d'instance B1. Partie 3 : ≈ 37 000 timelines, soit ≈ 0,8 million de lectures (≈ 0,5 USD), et ≈ 25 min d'instance B1.
