@@ -143,7 +143,7 @@ Valeurs tracées : [`figures/fig2a.csv`](figures/fig2a.csv), [`figures/fig2b.csv
 
 Ce qui change, c'est la durée de `get_timeline`, et ce n'est pas d'abord un effet de la charge. À C = 1, avec une seule requête en cours dans tout le système, son temps médian vaut déjà 23,6 ms avec 1 instance, 29,4 ms avec 2 et 27,0 ms avec 4 (débit à C = 1 : 24,5, 20,6 et 22,0 req/s). Les instances de `fixed2` et `fixed4` sont donc plus lentes dès le départ, à cause des instances elles-mêmes ou du moment du run. La charge ajoute ensuite des requêtes lentes : avec 4 instances, la moyenne passe de 31,6 ms à C = 1 à 40,3 ms à C = 64, alors que la médiane bouge peu. Je ne peux pas séparer ici l'effet de Datastore de celui du CPU partagé des instances B1.
 
-**Ce que ça dit, avec les mots du cours.** Ajouter des instances, c'est du *scale-out*. Le cours prévient que l'élasticité (avoir plus de machines) ne garantit pas la scalabilité : il faut que le travail soit vraiment parallèle. Ici, les instances ne partagent rien entre elles, sauf Datastore, qui joue le rôle de la mémoire partagée du « méta-ordinateur » vu en cours. Mes mesures ne permettent pas de tout mettre sur le dos de cette partie commune, puisqu'une partie du ralentissement existe déjà à C = 1. Seules les requêtes lentes qui apparaissent avec la charge vont dans le sens de la loi d'Amdahl et du *« it scales if the data access scales »* du cours. On mesure d'ailleurs ici la scalabilité sans l'élasticité, puisqu'il n'y a pas d'autoscaling.
+**Ce que ça dit, avec les mots du cours.** Ajouter des instances, c'est du *scale-out*. Le cours prévient que l'élasticité (avoir plus de machines) ne garantit pas la scalabilité : il faut que le travail soit vraiment parallèle. Ici, les instances ne partagent rien entre elles, sauf Datastore, qui joue le rôle de la mémoire partagée du « méta-ordinateur » vu en cours. Mes mesures ne permettent pas de tout mettre sur le dos de cette partie commune, puisqu'une partie du ralentissement existe déjà à C = 1. Seules les requêtes lentes qui apparaissent avec la charge vont dans le sens de la loi d'Amdahl et du *« it scales if the data access scales »* du cours.
 
 **En résumé :** une instance sert environ 28 timelines/s, limitée par son unique worker. Ajouter des instances augmente le débit, mais moins que proportionnellement (×2,9 pour ×4), parce que `get_timeline` est plus lent sur les versions à 2 et 4 instances, même sans charge. Avec 4 instances, le plafond n'est pas encore atteint à C = 64.
 
@@ -176,7 +176,7 @@ Valeurs tracées : [`figures/fig3.csv`](figures/fig3.csv) (a), [`figures/fig3_te
 
 #### Interprétation
 
-**Selon le protocole imposé, le gain est nul.** En Fig. 3a, `thr1` se confond avec `fixed1` à tous les C sauf C = 8, et le run 2 est même en dessous. Le gain n'apparaît qu'au tout début de chaque run, et il ne dure qu'environ 50 secondes.
+**Selon le protocole imposé, le gain est nul.** En Fig. 3a, `thr1` se confond avec `fixed1` à tous les C sauf C = 8, et le run 2 est même en dessous.
 
 **Un gain réel, mais surtout hors de la fenêtre de mesure.** Au début de chaque run, les threads font exactement ce qu'on attendait, et même mieux : 160 à 180 timelines/s sur une seule instance, au lieu de 28, soit **×6**. Ce pic tombe surtout pendant les 30 s de chauffe à C = 16, qui ne comptent pas dans les mesures, puis pendant les 20 premières secondes de C = 8. L'instance traite alors 5 à 7 requêtes en même temps (le temps cumulé dans `get_timeline` atteint 500 à 760 % de la durée écoulée). Puis, vers **t ≈ 50 s**, dans les deux runs, le débit retombe au niveau de `fixed1` et n'en bouge plus (Fig. 3b). Le point C = 8 de Fig. 3a est mesuré pendant cette bascule.
 
@@ -195,7 +195,7 @@ La documentation d'App Engine ne dit pas comment le planificateur choisit le nom
 
 **Ce que la correction coûte.**
 - *Complexité* : quasi nulle, une option dans une ligne de configuration.
-- *Argent* : une instance B1 coûte le même prix. Tant que les threads servent, elle traite 6 fois plus de timelines, donc il faudrait 6 fois moins d'instances pour la même charge. Le nombre de lectures Datastore par timeline ne change pas (21).
+- *Argent* : une instance B1 coûte le même prix. En théorie, avec un gain ×6, il faudrait 6 fois moins d'instances ; mais comme le gain ne dure pas, il n'y a aucune économie en pratique. Le nombre de lectures Datastore par timeline ne change pas (21).
 - *Cohérence des données* : aucun risque, une timeline ne fait que lire, et `get_timeline` ne modifie aucune variable globale. Le client Datastore (L10) est partagé par les threads.
 - *Limite* : le gain dépend de la plateforme, qu'on ne contrôle pas en manual scaling. L'automatic scaling permettrait peut-être d'en profiter, mais ce n'est plus le protocole à instances fixes du sujet.
 
